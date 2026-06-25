@@ -10,267 +10,206 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ================= НАСТРОЙКИ =================
-BOT_TOKEN = "8687107012:AAG2z9A98UywrrpX8Tr1_qWao7f1-wHhdu0"
-CHANNEL_ID = "@Overheard_love_stories"  # УЖЕ ПРАВИЛЬНО
-POLZA_API_KEY = "pza_nQyfNXkHfKBPruMBLf6gqOXhqfIsKTP-"
+# ================= КОНФИГУРАЦИЯ =================
+BOT_TOKEN = "8775611192:AAFsC5xlkQX9ijC8vQd6OEjgdWxQpEAOjMQ"
+CHANNEL_ID = "@DesignStoriesChannel"
+POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
+
+MODEL = "deepseek/deepseek-v4-flash"
 
 TEST_MODE = True
-TEST_INTERVAL = 120  # 2 минуты между постами
+TEST_INTERVAL = 60
+PUBLISHED_FILE = "published_design.json"
 
 # =============================================
 
-PERSONALITIES = [
-    {"name": "Emma", "age": 22, "gender": "female", "city": "London", "job": "student", "education": "high", "style": "mixed"},
-    {"name": "Liam", "age": 28, "gender": "male", "city": "New York", "job": "software engineer", "education": "high", "style": "dry"},
-    {"name": "Sophia", "age": 31, "gender": "female", "city": "Sydney", "job": "nurse", "education": "medium", "style": "long"},
-    {"name": "Noah", "age": 24, "gender": "male", "city": "Toronto", "job": "student", "education": "low", "style": "chaotic"},
-    {"name": "Mia", "age": 19, "gender": "female", "city": "Austin", "job": "barista", "education": "medium", "style": "short"},
-    {"name": "James", "age": 45, "gender": "male", "city": "Dublin", "job": "driver", "education": "low", "style": "dry"},
-    {"name": "Olivia", "age": 26, "gender": "female", "city": "Melbourne", "job": "teacher", "education": "high", "style": "mixed"},
-    {"name": "Ethan", "age": 29, "gender": "male", "city": "Austin", "job": "graphic designer", "education": "medium", "style": "chaotic"},
-    {"name": "Ava", "age": 21, "gender": "female", "city": "London", "job": "student", "education": "high", "style": "short"},
-    {"name": "Mason", "age": 34, "gender": "male", "city": "Chicago", "job": "lawyer", "education": "high", "style": "dry"},
-    {"name": "Isabella", "age": 27, "gender": "female", "city": "Toronto", "job": "graphic designer", "education": "medium", "style": "long"},
-    {"name": "Logan", "age": 23, "gender": "male", "city": "New York", "job": "student", "education": "low", "style": "chaotic"},
-    {"name": "Charlotte", "age": 30, "gender": "female", "city": "Sydney", "job": "nurse", "education": "medium", "style": "mixed"},
-    {"name": "Benjamin", "age": 38, "gender": "male", "city": "London", "job": "teacher", "education": "high", "style": "dry"},
-    {"name": "Amelia", "age": 24, "gender": "female", "city": "Austin", "job": "barista", "education": "low", "style": "chaotic"},
-    {"name": "Elijah", "age": 33, "gender": "male", "city": "Melbourne", "job": "engineer", "education": "high", "style": "mixed"},
-    {"name": "Harper", "age": 20, "gender": "female", "city": "Toronto", "job": "student", "education": "medium", "style": "short"},
-    {"name": "Alexander", "age": 41, "gender": "male", "city": "Chicago", "job": "manager", "education": "high", "style": "dry"},
-]
-
+# Список тем (логотипы, плакаты, предметы, шрифты, советский дизайн)
 TOPICS = [
-    "first kiss", "first love", "first breakup", "first date", "first intimacy",
-    "falling in love", "falling out of love", "long distance", "meeting parents",
-    "proposal", "wedding", "divorce", "cheating", "being ghosted", "ghosting someone",
-    "unrequited love", "crush on friend", "ex", "jealousy", "trust issues",
-    "pregnancy", "being a parent", "loneliness", "healing", "moving on",
-    "arguments", "working things out", "apology", "bad timing", "the one that got away",
-    "meeting online", "blind date", "different cultures", "age gap",
+    "логотип Apple",
+    "логотип Nike",
+    "логотип Coca-Cola",
+    "логотип FedEx",
+    "логотип McDonald's",
+    "логотип Chanel",
+    "логотип Volkswagen",
+    "логотип IBM",
+    "логотип Mercedes-Benz",
+    "логотип Starbucks",
+    "плакат Тулуз-Лотрека",
+    "плакат Альфонса Мухи",
+    "советский плакат 1920-х",
+    "плакат Баухаус",
+    "стул №14 Михаэля Тонета",
+    "кресло Wassily",
+    "стул Eames",
+    "шрифт Times New Roman",
+    "шрифт Helvetica",
+    "шрифт Futura",
+    "советский плакат",
+    "ВХУТЕМАС",
+    "советский конструктивизм",
 ]
-
-SCENARIOS = [
-    "needs_advice", "unfairness", "victory", "touching", "ambiguous",
-    "frustration", "betrayal", "happiness", "anger"
-]
-
-EXTRA_DETAILS = [
-    "late at night", "in the rain", "on a rooftop", "in a coffee shop", "while driving",
-    "at a party", "on a walk", "in the kitchen", "lying in bed", "watching a movie",
-    "during a thunderstorm", "on a bus", "at a wedding", "on a train", "at the beach",
-]
-
-IDIOMS = [
-    "I'm not even kidding", "dead serious", "I swear to God", "like actually",
-    "you have no idea", "I can't even", "this is insane", "I'm shook",
-    "my heart just dropped", "I almost cried", "I laughed so hard",
-    "life is so weird", "I don't even know anymore",
-]
-
-# =============================================
 
 def load_published():
-    if os.path.exists("published.json"):
-        with open("published.json", "r") as f:
+    if os.path.exists(PUBLISHED_FILE):
+        with open(PUBLISHED_FILE, "r") as f:
             return json.load(f)
     return []
 
 def save_published(articles):
-    with open("published.json", "w") as f:
+    with open(PUBLISHED_FILE, "w") as f:
         json.dump(articles[-100:], f)
 
-def get_personality():
-    return random.choice(PERSONALITIES)
+def search_wikimedia(query):
+    try:
+        search_url = "https://commons.wikimedia.org/w/api.php"
+        search_params = {
+            "action": "query",
+            "format": "json",
+            "list": "search",
+            "srsearch": query,
+            "srnamespace": 6
+        }
+        search_resp = requests.get(search_url, params=search_params, timeout=10)
+        data = search_resp.json()
+        if not data.get("query", {}).get("search"):
+            return None
+        title = data["query"]["search"][0]["title"]
+        info_url = "https://commons.wikimedia.org/w/api.php"
+        info_params = {
+            "action": "query",
+            "format": "json",
+            "titles": title,
+            "prop": "imageinfo",
+            "iiprop": "url"
+        }
+        info_resp = requests.get(info_url, params=info_params, timeout=10)
+        info_data = info_resp.json()
+        pages = info_data.get("query", {}).get("pages", {})
+        for page in pages.values():
+            if page.get("imageinfo"):
+                return page["imageinfo"][0]["url"]
+        return None
+    except Exception as e:
+        logger.error(f"Wikimedia error: {e}")
+        return None
 
-def get_topic():
-    return random.choice(TOPICS)
+def generate_story(topic):
+    prompt = f"""Ты — историк дизайна. Напиши короткую историю (700–800 символов) на тему: {topic}.
 
-def get_scenario():
-    return random.choice(SCENARIOS)
+Формат:
+- Начинай с интригующего заголовка.
+- Расскажи историю создания, ключевые факты, интересные детали.
+- Заверши вопросом к читателю.
 
-def get_extra_detail():
-    return random.choice(EXTRA_DETAILS)
+Пиши живым, разговорным языком, без сложных терминов.
 
-def get_idiom():
-    return random.choice(IDIOMS)
+Тема: {topic}
 
-def add_mistakes(text):
-    mistakes = {
-        " too ": " to ",
-        " your ": " ur ",
-        " you're ": " your ",
-        " their ": " there ",
-        " they're ": " there ",
-        " because ": " cuz ",
-        " really ": " rly ",
-        " actually ": " acually ",
-        " honestly ": " honest ",
-        " definitely ": " definately ",
-        " separate ": " seperate ",
-        " necessary ": " neccessary ",
-        " embarrassed ": " embarrased ",
-        " recommend ": " reccomend ",
-    }
-    if random.random() < 0.4:
-        old, new = random.choice(list(mistakes.items()))
-        text = text.replace(old, new)
-    if random.random() < 0.3:
-        text = text.replace(",", "")
-    return text
-
-def generate_story(topic, personality, scenario, extra_detail):
-    word_count = random.choice([60, 80, 100, 120, 150, 180, 200, 250])
-    
-    prompt = f"""Write a first-person emotional story about {topic} ({word_count} words).
-
-PERSONALITY:
-- Name: {personality['name']}, {personality['age']}, {personality['gender']}
-- City: {personality['city']}
-- Job: {personality['job']}
-- Education: {personality['education']} (affects grammar)
-- Writing style: {personality['style']}
-
-SCENARIO: {scenario}
-EXTRA DETAIL: {extra_detail}
-
-RULES:
-1. Write like a real person typing on their phone, NOT like an AI.
-2. If education is "low": include spelling mistakes, grammar errors, no commas, write as if in a hurry.
-3. If education is "medium": write naturally with a few mistakes and casual language.
-4. If education is "high": write correctly but casually, like a normal educated person.
-5. Use casual words: "kinda", "gonna", "wanna", "honestly", "literally", "actually".
-6. Emotions must feel real, raw, not polished.
-7. Start directly with the story. No "Let me tell you" or "I want to share".
-8. If scenario is "needs_advice" → end with "What would you do?"
-9. If scenario is "unfairness" → show the injustice clearly.
-10. If scenario is "victory" → show relief and happiness.
-11. If scenario is "touching" → show vulnerability and love.
-12. If scenario is "ambiguous" → show both sides of the situation.
-13. If scenario is "frustration" → show struggle and exhaustion.
-14. If scenario is "betrayal" → show pain and disbelief.
-15. If scenario is "happiness" → show warmth and joy.
-16. If scenario is "anger" → show raw anger and frustration.
-
-ADD SPICE:
-- Add 1 random idiom: {get_idiom()}
-- Add 1-3 emojis naturally (not forced): 😅😭💀❤️🔥😩😂🥺💔✨
-
-Write the story in first person ("I"). No markdown. No hashtags.
-
-Story:"""
-
+История:"""
     try:
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {POLZA_API_KEY}", "Content-Type": "application/json"},
             json={
-                "model": "openai/gpt-4o-mini",
+                "model": MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.9,
-                "max_tokens": 600
+                "max_tokens": 800
             },
             timeout=90
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            if personality['education'] == "low":
-                story = add_mistakes(story)
+            story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
             return story
         else:
-            logger.error(f"Polza error: {response.status_code} - {response.text[:200]}")
+            logger.error(f"Polza error: {response.status_code}")
             return None
     except Exception as e:
-        logger.error(f"Error generating story: {e}")
+        logger.error(f"Generate story error: {e}")
         return None
 
-def generate_question():
-    questions = [
-        "What would you do in this situation?",
-        "Has something similar happened to you?",
-        "Was I right to feel this way?",
-        "Is it just me or...?",
-        "Am I overreacting?",
-        "What would you say to them?",
-        "Does anyone else feel this way?",
-        "Should I give them another chance?",
-        "How do you move on from something like this?",
-        "Is this normal?",
-    ]
-    return random.choice(questions)
-
-def get_post_format(story):
-    formats = [
-        lambda s: f"📖 **Anonymous Story**\n\n{s}\n\n💭 {generate_question()}\n\n💬 What do you think? Drop a comment.",
-        lambda s: f"📖 **Overheard**\n\n{s}\n\n🤔 {generate_question()}\n\n💬 Share your thoughts in the comments! 👇",
-        lambda s: f"📖 **Real Story**\n\n{s}\n\n💭 {generate_question()}\n\n👇 What's your take?",
-    ]
-    return random.choice(formats)(story)
-
-def publish_to_channel(text):
-    header = "💔 **Overheard Love Stories**\n\n"
-    footer = "\n\n👍 Support with ⭐️"
-    full_text = header + text[:900] + footer
-    
+def publish_to_channel(text, image_url):
+    if image_url:
+        try:
+            img_data = requests.get(image_url, timeout=30).content
+            files = {'photo': ('image.jpg', img_data)}
+            data = {
+                'chat_id': CHANNEL_ID,
+                'caption': text[:1024],
+                'parse_mode': 'Markdown'
+            }
+            resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
+            if resp.status_code == 200:
+                logger.info("✅ Пост с картинкой опубликован")
+                return True
+            else:
+                logger.error(f"Telegram error: {resp.status_code} - {resp.text[:200]}")
+        except Exception as e:
+            logger.error(f"Photo send error: {e}")
+    # fallback: только текст
     payload = {
         'chat_id': CHANNEL_ID,
-        'text': full_text[:4096],
+        'text': text[:4096],
         'parse_mode': 'Markdown'
     }
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
     if resp.status_code == 200:
-        logger.info("✅ Post published")
+        logger.info("✅ Текст опубликован")
         return True
     else:
-        logger.error(f"Error: {resp.text}")
+        logger.error(f"Text send error: {resp.text}")
         return False
 
 def create_and_publish():
     logger.info("=" * 40)
-    logger.info("🚀 Generating new story...")
-    
+    logger.info("🚀 Генерация нового поста")
     published = load_published()
-    personality = get_personality()
-    topic = get_topic()
-    scenario = get_scenario()
-    extra = get_extra_detail()
-    
-    logger.info(f"👤 {personality['name']} ({personality['age']}, {personality['city']})")
-    logger.info(f"📌 Topic: {topic}")
-    logger.info(f"🎭 Scenario: {scenario}")
-    
-    story = generate_story(topic, personality, scenario, extra)
+    available = [t for t in TOPICS if t not in published]
+    if not available:
+        save_published([])
+        available = TOPICS
+        logger.info("История сброшена")
+    topic = random.choice(available)
+    logger.info(f"📌 Тема: {topic}")
+
+    image_url = search_wikimedia(topic)
+    if not image_url:
+        image_url = search_wikimedia(topic.split()[0])
+    if not image_url:
+        image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0d/Design_stories_logo.png"  # заглушка, если не найдено
+
+    story = generate_story(topic)
     if not story:
-        logger.error("Failed to generate story")
+        logger.error("История не сгенерирована")
         return False
-    
-    full_post = get_post_format(story)
-    
-    success = publish_to_channel(full_post)
-    
+
+    header = "📐 **Истории про дизайн**\n\n"
+    footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
+    full_text = header + story[:800] + footer
+
+    success = publish_to_channel(full_text, image_url)
     if success:
-        save_published([{"title": f"{personality['name']} - {topic}", "timestamp": datetime.now().isoformat()}])
-        logger.info("✅ Story published!")
+        published.append(topic)
+        save_published(published)
+        logger.info("✅ Пост опубликован")
         return True
-    
     return False
 
-if __name__ == "__main__":
-    logger.info("💔 OVERHEARD LOVE STORIES - БОТ ЗАПУЩЕН 💔")
-    
+def run_schedule():
+    logger.info("⏰ Бот запущен")
     if TEST_MODE:
-        logger.info(f"🧪 ТЕСТОВЫЙ РЕЖИМ: пост каждые {TEST_INTERVAL} секунд")
-        create_and_publish()
+        logger.info(f"🧪 Тестовый режим: пост каждые {TEST_INTERVAL} секунд")
         while True:
-            time.sleep(TEST_INTERVAL)
             create_and_publish()
+            time.sleep(TEST_INTERVAL)
     else:
-        logger.info("⏰ Обычный режим: посты в 10:00 и 18:00 UTC")
+        logger.info("⏰ Обычный режим: посты в 10:00, 15:00, 20:00 UTC")
         while True:
             now = datetime.now()
             next_run = None
-            for hour in [10, 18]:
+            for hour in [10, 15, 20]:
                 if now.hour < hour:
                     next_run = now.replace(hour=hour, minute=0, second=0, microsecond=0)
                     break
@@ -280,3 +219,7 @@ if __name__ == "__main__":
             logger.info(f"Следующий пост в {next_run.strftime('%H:%M')} UTC (через {int(wait_seconds/60)} мин)")
             time.sleep(wait_seconds)
             create_and_publish()
+
+if __name__ == "__main__":
+    logger.info("📐 ИСТОРИИ ПРО ДИЗАЙН — БОТ ЗАПУЩЕН 📐")
+    run_schedule()
