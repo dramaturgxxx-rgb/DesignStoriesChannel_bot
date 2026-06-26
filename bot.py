@@ -20,10 +20,13 @@ MODEL = "deepseek/deepseek-v4-flash"
 TEST_MODE = True
 TEST_INTERVAL = 60
 
-PUBLISHED_FILE = "published_design.json"
+# Используем абсолютный путь, чтобы файл точно создавался
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PUBLISHED_FILE = os.path.join(BASE_DIR, "published_design.json")
 
 # =============================================
 
+# Уникальные темы (без дублей)
 TOPICS = [
     "логотип Apple",
     "логотип Nike",
@@ -37,30 +40,55 @@ TOPICS = [
     "логотип Starbucks",
     "плакат Тулуз-Лотрека",
     "плакат Альфонса Мухи",
-    "советский плакат 1920-х",
     "плакат Баухаус",
+    "советский плакат",
+    "ВХУТЕМАС",
+    "советский конструктивизм",
     "стул №14 Михаэля Тонета",
     "кресло Wassily",
     "стул Eames",
     "шрифт Times New Roman",
     "шрифт Helvetica",
     "шрифт Futura",
-    "советский плакат",
-    "ВХУТЕМАС",
-    "советский конструктивизм",
 ]
 
 def load_published():
-    if os.path.exists(PUBLISHED_FILE):
-        with open(PUBLISHED_FILE, "r") as f:
-            return json.load(f)
-    return []
+    try:
+        if os.path.exists(PUBLISHED_FILE):
+            with open(PUBLISHED_FILE, "r") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    return data
+                else:
+                    return []
+        else:
+            # Если файла нет, создаём пустой
+            with open(PUBLISHED_FILE, "w") as f:
+                json.dump([], f)
+            return []
+    except Exception as e:
+        logger.error(f"Ошибка загрузки published: {e}")
+        # В случае ошибки используем временный файл
+        global PUBLISHED_FILE
+        PUBLISHED_FILE = "/tmp/published_design.json"
+        if os.path.exists(PUBLISHED_FILE):
+            with open(PUBLISHED_FILE, "r") as f:
+                return json.load(f)
+        else:
+            with open(PUBLISHED_FILE, "w") as f:
+                json.dump([], f)
+            return []
 
 def save_published(articles):
-    with open(PUBLISHED_FILE, "w") as f:
-        json.dump(articles[-100:], f)
+    try:
+        with open(PUBLISHED_FILE, "w") as f:
+            json.dump(articles[-100:], f)
+        logger.info(f"✅ Сохранено {len(articles)} тем в {PUBLISHED_FILE}")
+    except Exception as e:
+        logger.error(f"Ошибка сохранения published: {e}")
 
 def escape_md(text):
+    """Экранирует только критичные символы для Markdown"""
     chars = r'_*[]()~`>#+-=|{}'
     return ''.join('\\' + c if c in chars else c for c in text)
 
@@ -68,18 +96,28 @@ def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def search_wikimedia(query):
-    """Улучшенный поиск: без жёсткого фильтра на logo, ищем по релевантности"""
+    """Ищет изображения строго по категориям и ключевым словам"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     eng_words = extract_english_words(query)
     if not eng_words:
         eng_words = [query]
     
-    # Список категорий для разных типов контента
-    categories = ["Logos", "Posters", "Design", "Advertising", "Furniture", "Typography", "Chairs", "Architecture"]
+    # Определяем категорию по типу темы
+    category = "Logos"
+    if "плакат" in query or "poster" in query.lower():
+        category = "Posters"
+    elif "стул" in query or "кресло" in query or "chair" in query.lower():
+        category = "Furniture"
+    elif "шрифт" in query or "font" in query.lower():
+        category = "Typography"
+    
+    # Формируем запросы с категорией
     queries = []
     base = ' '.join(eng_words)
-    for cat in categories:
-        queries.append(f'"{base}" incategory:"{cat}"')
+    queries.append(f'"{base}" incategory:"{category}"')
+    # Если есть английские слова, ищем без кавычек для более широкого поиска
+    if len(eng_words) > 1:
+        queries.append(f'{base} incategory:"{category}"')
     queries.append(base)
     queries = list(dict.fromkeys(queries))
     
@@ -106,8 +144,15 @@ def search_wikimedia(query):
             for result in data["query"]["search"]:
                 title = result["title"]
                 title_lower = title.lower()
-                # Проверяем наличие ключевых слов в заголовке
+                # Проверяем, что в названии есть ключевые слова
                 if not any(word.lower() in title_lower for word in eng_words):
+                    continue
+                
+                # Дополнительная проверка для логотипов: в названии должно быть logo/emblem/symbol
+                if category == "Logos" and not any(w in title_lower for w in ['logo', 'emblem', 'symbol', 'mark']):
+                    continue
+                # Для плакатов: должно быть poster или placard
+                if category == "Posters" and not any(w in title_lower for w in ['poster', 'placard']):
                     continue
                 
                 info_params = {
@@ -143,19 +188,20 @@ def search_wikimedia(query):
     return None
 
 def generate_story(topic):
-    prompt = f"""Ты — историк дизайна. Напиши короткую историю на тему: {topic}.
+    # Жёсткий промпт без политики, войны, нацизма
+    prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
 
 Важные требования:
 - Объём: ровно 700–800 символов (не больше!).
-- История должна быть законченной: иметь вступление, основную часть и вывод или вопрос к читателю.
-- Не обрывай повествование на полуслове — обязательно заверши мысль.
-- Заголовок — интригующий (выдели его **жирным** в самом тексте).
+- История должна быть законченной: вступление, основная часть, вывод или вопрос.
+- Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
-- Не используй обратные слеши (\\) в тексте.
+- Никаких упоминаний политики, войн, нацизма, фюреров, свастик.
+- Не используй обратные слеши (\\) или экранирование.
 
 Тема: {topic}
 
-История:"""
+Напиши историю (без лишних вступлений):"""
     try:
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
@@ -170,9 +216,12 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
+            # Удаляем типичные вводные фразы
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
-            # Удаляем все обратные слеши (модель иногда их ставит)
-            story = story.replace('\\', '')
+            # Жёстко удаляем все виды слешей
+            story = re.sub(r'\\+', '', story)  # удаляем любые последовательности \
+            story = re.sub(r'\(', '(', story)  # заменяем экранированные скобки на обычные
+            story = re.sub(r'\)', ')', story)
             return story
         else:
             logger.error(f"Polza error: {response.status_code}")
@@ -206,8 +255,8 @@ def truncate_to_sentence(text, max_len):
             return ensure_complete(truncated + '...')
 
 def publish_to_channel(text, image_url):
-    # Удаляем все обратные слеши из текста (на всякий случай)
-    text = text.replace('\\', '')
+    # Чистим текст от слешей ещё раз перед отправкой
+    text = re.sub(r'\\+', '', text)
     
     if image_url:
         try:
@@ -222,30 +271,22 @@ def publish_to_channel(text, image_url):
                 file_size = len(img_data)
                 logger.info(f"Размер файла: {file_size} байт")
                 if file_size > 20 * 1024 * 1024:
-                    logger.warning(f"Изображение слишком большое ({file_size} байт, лимит 20 МБ), пропускаем")
+                    logger.warning(f"Изображение слишком большое ({file_size} байт), пропускаем")
                     image_url = None
                 else:
                     caption = escape_md(text[:1024])
                     if file_size > 5 * 1024 * 1024:
                         logger.info("Файл >5 МБ, отправляем как документ")
                         files = {'document': ('image.jpg', img_data)}
-                        data = {
-                            'chat_id': CHANNEL_ID,
-                            'caption': caption,
-                            'parse_mode': 'Markdown'
-                        }
+                        data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
                         resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument", files=files, data=data, timeout=30)
                     else:
                         files = {'photo': ('image.jpg', img_data)}
-                        data = {
-                            'chat_id': CHANNEL_ID,
-                            'caption': caption,
-                            'parse_mode': 'Markdown'
-                        }
+                        data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
                         resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
                     
                     if resp.status_code == 200:
-                        logger.info("✅ Пост с картинкой опубликован (Markdown)")
+                        logger.info("✅ Пост с картинкой опубликован")
                         return True
                     else:
                         logger.error(f"Telegram image error: {resp.status_code} - {resp.text[:200]}")
@@ -263,7 +304,7 @@ def publish_to_channel(text, image_url):
     }
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
     if resp.status_code == 200:
-        logger.info("✅ Текст опубликован (Markdown)")
+        logger.info("✅ Текст опубликован")
         return True
     else:
         logger.error(f"Text send error: {resp.text}")
@@ -300,7 +341,6 @@ def create_and_publish():
         logger.warning(f"⚠️ Ни для одной темы не найдена картинка, берём '{chosen_topic}' без картинки")
         image_url = None
     
-    # Генерируем историю
     logger.info(f"📌 Генерируем историю для: {chosen_topic}")
     story = generate_story(chosen_topic)
     if not story:
@@ -315,7 +355,6 @@ def create_and_publish():
     
     success = publish_to_channel(full_text, image_url)
     if success:
-        # Добавляем тему в использованные, даже если картинки не было (чтобы не повторять)
         published.append(chosen_topic)
         save_published(published)
         logger.info(f"✅ Пост опубликован (тема: {chosen_topic})")
