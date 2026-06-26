@@ -170,9 +170,7 @@ def clean_text(text):
     """Удаляет все обратные слеши и экранированные символы"""
     if not text:
         return text
-    # Удаляем все слеши, стоящие перед любым символом
     text = re.sub(r'\\(.)', r'\1', text)
-    # Убираем возможные двойные слеши
     text = re.sub(r'\\+', '', text)
     return text
 
@@ -188,36 +186,95 @@ def is_bad_image(alt_text):
             return True
     return False
 
+def search_wikimedia(query):
+    """Поиск на Wikimedia Commons (для исторических логотипов и плакатов)"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    eng = extract_english_words(query)
+    if not eng:
+        return None
+    base = ' '.join(eng)
+    categories = ["Logos", "Posters", "Design", "Advertising", "Furniture", "Typography"]
+    search_terms = []
+    for cat in categories:
+        search_terms.append(f'"{base}" incategory:"{cat}"')
+    search_terms.append(base)
+    search_terms = list(dict.fromkeys(search_terms))
+
+    for term in search_terms:
+        try:
+            url = "https://commons.wikimedia.org/w/api.php"
+            params = {
+                "action": "query",
+                "format": "json",
+                "list": "search",
+                "srsearch": term,
+                "srnamespace": 6,
+                "srlimit": 5,
+                "srwhat": "text"
+            }
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            if response.status_code != 200:
+                continue
+            data = response.json()
+            if not data.get("query", {}).get("search"):
+                continue
+            for result in data["query"]["search"]:
+                title = result["title"]
+                title_lower = title.lower()
+                if not any(word.lower() in title_lower for word in eng):
+                    continue
+                info_params = {
+                    "action": "query",
+                    "format": "json",
+                    "titles": title,
+                    "prop": "imageinfo",
+                    "iiprop": "url|extmetadata"
+                }
+                info_resp = requests.get(url, params=info_params, headers=headers, timeout=10)
+                if info_resp.status_code != 200:
+                    continue
+                info_data = info_resp.json()
+                for page in info_data.get("query", {}).get("pages", {}).values():
+                    if not page.get("imageinfo"):
+                        continue
+                    url_img = page["imageinfo"][0]["url"]
+                    if re.search(r'\.(jpg|jpeg)(\?.*)?$', url_img, re.I):
+                        desc = page["imageinfo"][0].get("extmetadata", {}).get("ImageDescription", {}).get("value", "")
+                        if desc:
+                            desc_lower = desc.lower()
+                            if any(word.lower() in desc_lower for word in eng):
+                                logger.info(f"✅ Wikimedia: {url_img}")
+                                return url_img
+                        else:
+                            logger.info(f"✅ Wikimedia (без описания): {url_img}")
+                            return url_img
+        except Exception as e:
+            logger.error(f"Wikimedia error: {e}")
+    return None
+
 def search_pexels(query):
-    """Поиск фото с жёсткой фильтрацией по alt"""
+    """Поиск на Pexels"""
     if not PEXELS_API_KEY:
-        logger.warning("⚠️ Pexels API ключ не настроен!")
         return None
 
     eng = extract_english_words(query)
     base = ' '.join(eng) if eng else query
-
     queries = [query]
     if eng:
         queries.append(base)
-        # Точные запросы для логотипов, плакатов и т.д.
         if any(w in query for w in ['логотип', 'logo']):
             queries.append(f"\"{base}\" logo vintage")
             queries.append(f"\"{base}\" emblem retro")
         if any(w in query for w in ['плакат', 'постер', 'poster']):
             queries.append(f"\"{base}\" poster vintage")
-            queries.append(f"\"{base}\" wall art retro")
         if any(w in query for w in ['стул', 'кресло', 'chair']):
             queries.append(f"\"{base}\" chair vintage")
-            queries.append(f"retro {base} chair")
         if any(w in query for w in ['шрифт', 'font']):
             queries.append(f"\"{base}\" font vintage")
         if any(w in query for w in ['автомобиль', 'car']):
             queries.append(f"\"{base}\" vintage car")
         if any(w in query for w in ['вывеска', 'sign']):
             queries.append(f"\"{base}\" vintage sign")
-        if any(w in query for w in ['часы', 'watch']):
-            queries.append(f"\"{base}\" vintage watch")
         queries.append(f"vintage {base}")
         queries.append(f"retro {base}")
     queries = list(dict.fromkeys(queries))
@@ -234,21 +291,7 @@ def search_pexels(query):
             data = response.json()
             if not data.get("photos"):
                 continue
-
             keywords = set(q.lower().split())
-            # Сначала ищем фото, где alt содержит минимум 2 ключевых слова
-            for photo in data["photos"]:
-                alt = photo.get("alt", "")
-                if is_bad_image(alt):
-                    continue
-                alt_lower = alt.lower()
-                match_count = sum(1 for word in keywords if word in alt_lower)
-                if match_count >= 2:
-                    photo_url = photo["src"]["large"]
-                    logger.info(f"✅ Релевантное фото (2+ совпадений): {photo_url} (alt: {alt})")
-                    return photo_url
-
-            # Затем с 1 совпадением
             for photo in data["photos"]:
                 alt = photo.get("alt", "")
                 if is_bad_image(alt):
@@ -256,22 +299,28 @@ def search_pexels(query):
                 alt_lower = alt.lower()
                 if any(word in alt_lower for word in keywords):
                     photo_url = photo["src"]["large"]
-                    logger.info(f"✅ Релевантное фото (1 совпадение): {photo_url} (alt: {alt})")
+                    logger.info(f"✅ Pexels: {photo_url}")
                     return photo_url
-
-            # Если не нашли, берём первое без животного
             for photo in data["photos"]:
                 alt = photo.get("alt", "")
                 if not is_bad_image(alt):
                     photo_url = photo["src"]["large"]
-                    logger.info(f"✅ Найдено фото (не животное): {photo_url}")
+                    logger.info(f"✅ Pexels (без alt): {photo_url}")
                     return photo_url
-
         except Exception as e:
-            logger.error(f"Pexels exception для '{q}': {e}")
-
-    logger.warning("❌ Не найдено подходящее фото")
+            logger.error(f"Pexels exception: {e}")
     return None
+
+def search_image(query):
+    """Гибридный поиск: сначала Pexels, если не нашлось - Wikimedia"""
+    logger.info(f"🔍 Поиск картинки для: {query}")
+    # Сначала Pexels
+    url = search_pexels(query)
+    if url:
+        return url
+    # Если не нашлось - Wikimedia
+    logger.info("🔄 Pexels не нашёл, пробуем Wikimedia")
+    return search_wikimedia(query)
 
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
@@ -281,8 +330,7 @@ def generate_story(topic):
 - История должна быть законченной: вступление, основная часть, вывод или вопрос.
 - Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
-- Никаких упоминаний политики, войн, нацизма, фюреров, свастик.
-- НЕ ИСПОЛЬЗУЙ обратные слеши (\\) или экранирование в тексте.
+- НИКАКИХ обратных слешей (\) в тексте.
 
 Тема: {topic}
 
@@ -317,7 +365,6 @@ def ensure_complete(text):
         return text + '.'
 
 def truncate_to_sentence(text, max_len):
-    # Сначала чистим текст от слешей
     text = clean_text(text)
     if len(text) <= max_len:
         return ensure_complete(text)
@@ -337,7 +384,6 @@ def escape_md(text):
     return ''.join('\\' + c if c in chars else c for c in text)
 
 def publish_to_channel(text, image_url):
-    # Финальная очистка текста
     text = clean_text(text)
 
     if image_url:
@@ -379,16 +425,16 @@ def create_and_publish():
     topic = get_next_topic(published)
     logger.info(f"📌 Тема: {topic}")
 
-    # Ищем фото для основной темы
-    image_url = search_pexels(topic)
+    # Ищем фото (гибридный поиск)
+    image_url = search_image(topic)
     if not image_url:
-        # Если не нашлось, пробуем альтернативную тему (следующую)
+        # Пробуем альтернативную тему
         alt_topic = get_next_topic(published + [topic])
         logger.info(f"🔄 Пробуем альтернативную тему: {alt_topic}")
-        image_url = search_pexels(alt_topic)
+        image_url = search_image(alt_topic)
         if image_url:
             topic = alt_topic
-            logger.info(f"✅ Для альтернативной темы '{topic}' найдена картинка")
+            logger.info(f"✅ Для '{topic}' найдена картинка")
         else:
             logger.warning(f"⚠️ Для '{topic}' картинка не найдена, публикуем без фото")
 
