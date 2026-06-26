@@ -60,15 +60,15 @@ def save_published(articles):
     with open(PUBLISHED_FILE, "w") as f:
         json.dump(articles[-100:], f)
 
-def escape_md(text):
-    """Экранирует только опасные символы для Markdown (без тильды и обратной кавычки)"""
-    chars = r'_*[]()>#+-=|{}'  # убрали ~ и `
-    return ''.join('\\' + c if c in chars else c for c in text)
+def html_escape(text):
+    """Экранирует только &, <, > для HTML"""
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def search_wikimedia(query):
+    """Ищет изображения только .jpg или .jpeg (надёжно для Telegram)"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     queries = [query]
     eng = extract_english_words(query)
@@ -94,10 +94,7 @@ def search_wikimedia(query):
             response = requests.get(search_url, params=params, headers=headers, timeout=10)
             if response.status_code != 200:
                 continue
-            try:
-                data = response.json()
-            except json.JSONDecodeError:
-                continue
+            data = response.json()
             if not data.get("query", {}).get("search"):
                 continue
             title = data["query"]["search"][0]["title"]
@@ -115,15 +112,15 @@ def search_wikimedia(query):
             for page in info_data.get("query", {}).get("pages", {}).values():
                 if page.get("imageinfo"):
                     url = page["imageinfo"][0]["url"]
-                    # Проверяем расширение, но не отсекаем, если оно не в списке – пропускаем только явно неподдерживаемые
-                    if re.search(r'\.(jpg|jpeg|png|gif|webp)(\?.*)?$', url, re.I):
-                        logger.info(f"✅ Найдено: {url}")
+                    # Только JPG/JPEG
+                    if re.search(r'\.(jpg|jpeg)(\?.*)?$', url, re.I):
+                        logger.info(f"✅ Найдено JPG: {url}")
                         return url
                     else:
-                        logger.warning(f"⛔ Неподдерживаемый формат: {url}")
+                        logger.warning(f"⛔ Пропускаем (не JPG): {url}")
         except Exception as e:
             logger.error(f"Ошибка при поиске '{q}': {e}")
-    logger.warning("❌ Изображение не найдено")
+    logger.warning("❌ Подходящее JPG-изображение не найдено")
     return None
 
 def generate_story(topic):
@@ -189,8 +186,11 @@ def truncate_to_sentence(text, max_len):
 def publish_to_channel(text, image_url):
     if image_url:
         try:
-            logger.info(f"📥 Скачиваем изображение: {image_url}")
-            img_response = requests.get(image_url, timeout=30)
+            logger.info(f"📥 Скачиваем JPG: {image_url}")
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            img_response = requests.get(image_url, headers=headers, timeout=30)
             if img_response.status_code != 200:
                 logger.warning(f"Не удалось скачать, статус {img_response.status_code}")
                 image_url = None
@@ -198,16 +198,16 @@ def publish_to_channel(text, image_url):
                 img_data = img_response.content
                 file_size = len(img_data)
                 logger.info(f"Размер файла: {file_size} байт")
-                if file_size > 10 * 1024 * 1024:
+                if file_size > 5 * 1024 * 1024:
                     logger.warning(f"Изображение слишком большое ({file_size} байт), пропускаем")
                     image_url = None
                 else:
                     files = {'photo': ('image.jpg', img_data)}
-                    caption = text[:1024]
+                    caption = html_escape(text[:1024])
                     data = {
                         'chat_id': CHANNEL_ID,
                         'caption': caption,
-                        'parse_mode': 'Markdown'
+                        'parse_mode': 'HTML'
                     }
                     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
                     if resp.status_code == 200:
@@ -215,23 +215,19 @@ def publish_to_channel(text, image_url):
                         return True
                     else:
                         logger.error(f"Telegram photo error: {resp.status_code} - {resp.text[:200]}")
-                        # При ошибке 400 обычно изображение битое, не пытаемся снова
-                        if resp.status_code == 400:
-                            logger.warning("❌ Telegram не принял изображение, отправляем только текст")
-                            image_url = None
-                        else:
-                            # Другие ошибки (например, 429) – тоже пропускаем картинку
-                            image_url = None
+                        image_url = None
         except Exception as e:
             logger.error(f"Photo error: {e}")
             image_url = None
 
-    # Отправка только текста
-    safe_text = escape_md(truncate_to_sentence(text, 4096))
+    # Отправка только текста (HTML)
+    safe_text = html_escape(truncate_to_sentence(text, 4096))
+    # Преобразуем ** в <b> для HTML
+    safe_text = re.sub(r'\*\*(.*?)\*\*', r'<b>\1</b>', safe_text)
     payload = {
         'chat_id': CHANNEL_ID,
         'text': safe_text,
-        'parse_mode': 'Markdown'
+        'parse_mode': 'HTML'
     }
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
     if resp.status_code == 200:
@@ -264,7 +260,7 @@ def create_and_publish():
         logger.error("❌ История не сгенерирована")
         return False
 
-    header = "📐 **Истории про дизайн**\n\n"
+    header = "📐 <b>Истории про дизайн</b>\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     
     story_cut = truncate_to_sentence(story, 800)
