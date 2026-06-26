@@ -6,6 +6,7 @@ import os
 import random
 import re
 from datetime import datetime
+from urllib.parse import quote
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -64,32 +65,48 @@ def escape_md(text):
     chars = r'_*[]()~`>#+-=|{}.!'
     return ''.join('\\' + c if c in chars else c for c in text)
 
+def extract_english_words(text):
+    """Извлекает слова, состоящие только из латиницы и цифр"""
+    return re.findall(r'[A-Za-z0-9]+', text)
+
 def search_wikimedia(query):
-    queries = [
-        query,
-        query + " design",
-        query + " logo",
-        query.split()[0] if len(query.split()) > 1 else None,
-    ]
-    queries = [q for q in queries if q]
+    """Улучшенный поиск с несколькими запросами (русский, английский, комбинации)"""
+    # Формируем список запросов
+    queries = [query]  # оригинальный на русском
+    # Добавляем английские слова из темы
+    eng_words = extract_english_words(query)
+    if eng_words:
+        queries.append(' '.join(eng_words))  # только английские слова
+        # Добавляем с "design" и "logo" на английском
+        queries.append(' '.join(eng_words) + ' design')
+        queries.append(' '.join(eng_words) + ' logo')
+    # Если есть английские слова, пробуем также только первое английское слово
+    if eng_words:
+        queries.append(eng_words[0])
+    # Оставляем уникальные
+    queries = list(dict.fromkeys(queries))
 
     for q in queries:
         try:
             logger.info(f"🔍 Ищем на Wikimedia: {q}")
             search_url = "https://commons.wikimedia.org/w/api.php"
-            search_params = {
+            params = {
                 "action": "query",
                 "format": "json",
                 "list": "search",
                 "srsearch": q,
-                "srnamespace": 6
+                "srnamespace": 6,
+                "srlimit": 1
             }
-            search_resp = requests.get(search_url, params=search_params, timeout=10)
-            data = search_resp.json()
+            response = requests.get(search_url, params=params, timeout=10)
+            if response.status_code != 200:
+                logger.warning(f"⚠️ Wikimedia вернул статус {response.status_code}, текст: {response.text[:200]}")
+                continue
+            data = response.json()
             if not data.get("query", {}).get("search"):
                 continue
-
             title = data["query"]["search"][0]["title"]
+            # Получаем URL изображения
             info_url = "https://commons.wikimedia.org/w/api.php"
             info_params = {
                 "action": "query",
@@ -99,6 +116,8 @@ def search_wikimedia(query):
                 "iiprop": "url"
             }
             info_resp = requests.get(info_url, params=info_params, timeout=10)
+            if info_resp.status_code != 200:
+                continue
             info_data = info_resp.json()
             pages = info_data.get("query", {}).get("pages", {})
             for page in pages.values():
@@ -109,25 +128,34 @@ def search_wikimedia(query):
                         return url
                     else:
                         logger.warning(f"⛔ Неподдерживаемый формат: {url}")
+        except requests.exceptions.JSONDecodeError as e:
+            logger.error(f"Ошибка парсинга JSON для запроса '{q}': {e}")
+            # Пробуем прочитать текст ответа для диагностики
+            logger.error(f"Ответ: {response.text[:300] if 'response' in locals() else 'нет ответа'}")
         except Exception as e:
-            logger.error(f"Wikimedia error: {e}")
+            logger.error(f"Ошибка поиска: {e}")
     logger.warning("❌ Изображение не найдено ни по одному запросу")
     return None
 
 def generate_story(topic):
-    # НОВЫЙ ПРОМПТ — с явным указанием длины и завершённости
+    """Генерирует историю с чётким требованием завершённости"""
     prompt = f"""Ты — историк дизайна. Напиши короткую историю на тему: {topic}.
 
 Важные требования:
 - Объём: ровно 700–800 символов (не больше!).
-- История должна быть законченной: иметь вступление, основную часть и вывод (или вопрос к читателю).
-- Не обрывай повествование на полуслове — заверши мысль.
-- Заголовок — интригующий.
+- История должна быть законченной: иметь вступление, основную часть и вывод или вопрос к читателю.
+- Не обрывай повествование на полуслове — обязательно заверши мысль.
+- Заголовок — интригующий (выдели его).
 - Пиши живым, разговорным языком.
+
+Пример структуры:
+[Заголовок]
+[История с фактами и деталями]
+[Вывод или вопрос]
 
 Тема: {topic}
 
-Теперь напиши законченную историю:"""
+Теперь напиши законченную историю (без лишних вступлений, сразу текст):"""
     try:
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
@@ -136,42 +164,51 @@ def generate_story(topic):
                 "model": MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.9,
-                "max_tokens": 1100  # запас, чтобы модель могла завершить мысль
+                "max_tokens": 1100
             },
             timeout=90
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            # Удаляем вводные фразы
+            # Удаляем возможные вводные фразы
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
             return story
         else:
-            logger.error(f"Polza error: {response.status_code}")
+            logger.error(f"Polza error: {response.status_code} - {response.text[:200]}")
             return None
     except Exception as e:
         logger.error(f"Generate story error: {e}")
         return None
 
-def truncate_to_sentence(text, max_len):
-    """
-    Обрезает до max_len, но старается сохранить завершённое предложение.
-    Если последнее предложение явно незавершённое (например, заканчивается на двоеточие или запятую),
-    добавляет завершающую фразу.
-    """
-    if len(text) <= max_len:
+def ensure_complete(text):
+    """Если текст заканчивается не на точку/вопрос/восклицание, добавляет завершающую фразу"""
+    if not text:
         return text
+    if text[-1] in '.!?':
+        return text
+    # Если заканчивается на двоеточие, запятую, союз и т.п. — добавляем завершение
+    if text[-1] in ':,;—' or text.endswith('что') or text.endswith('как'):
+        return text + ' Вот такая история!'
+    else:
+        # Добавляем многоточие, но лучше просто точку
+        return text + '.'
+
+def truncate_to_sentence(text, max_len):
+    """Обрезает до max_len, стараясь завершить на точке/вопросе/восклицании"""
+    if len(text) <= max_len:
+        return ensure_complete(text)
     truncated = text[:max_len]
     # Ищем последний разделитель предложений
     last_punct = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
     if last_punct > max_len * 0.6:
-        return truncated[:last_punct+1]
+        return ensure_complete(truncated[:last_punct+1])
     else:
-        # Если нет точки, обрезаем по пробелу и ставим многоточие
+        # Если нет точки, обрезаем по пробелу и добавляем завершение
         last_space = truncated.rfind(' ')
         if last_space > max_len * 0.6:
-            return truncated[:last_space] + '...'
+            return ensure_complete(truncated[:last_space] + '...')
         else:
-            return truncated + '...'
+            return ensure_complete(truncated + '...')
 
 def publish_to_channel(text, image_url):
     if image_url:
@@ -222,8 +259,11 @@ def create_and_publish():
     logger.info(f"📌 Тема: {topic}")
 
     image_url = search_wikimedia(topic)
-    if not image_url and len(topic.split()) > 1:
-        image_url = search_wikimedia(topic.split()[0])
+    # Если не нашли, пробуем поискать только английские слова (если есть)
+    if not image_url:
+        eng = extract_english_words(topic)
+        if eng:
+            image_url = search_wikimedia(' '.join(eng))
 
     story = generate_story(topic)
     if not story:
@@ -233,7 +273,6 @@ def create_and_publish():
     header = "📐 **Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     
-    # Теперь история уже должна быть примерно нужной длины, но на всякий случай обрежем
     story_cut = truncate_to_sentence(story, 800)
     full_text = header + story_cut + footer
 
