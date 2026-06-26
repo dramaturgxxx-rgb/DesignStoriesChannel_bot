@@ -139,7 +139,6 @@ TOPICS = [
     "старый знак MTV"
 ]
 
-# Стоп-слова для исключения животных/природы
 BAD_WORDS = ['animal', 'wild', 'nature', 'zoo', 'lion', 'tiger', 'panther', 'leopard', 'cheetah', 'jaguar', 'cat', 'predator', 'wildlife', 'safari', 'beast', 'claw', 'fang', 'fur', 'dog', 'wolf', 'bear', 'deer', 'fox', 'rabbit', 'bird', 'eagle', 'hawk', 'owl', 'fish', 'shark', 'whale', 'dolphin']
 
 def load_published():
@@ -172,32 +171,24 @@ def get_next_topic(published):
     return TOPICS[0]
 
 def clean_text(text):
-    """Агрессивная очистка текста от всех обратных слешей и экранированных символов"""
+    """Удаляет все обратные слеши и лишние пробелы, без сложных регулярных выражений"""
     if not text:
         return text
-    # 1. Удаляем все последовательности \x (где x любой символ)
-    text = re.sub(r'\\(.)', r'\1', text)
-    # 2. Удаляем все оставшиеся слеши (двойные, тройные и т.п.)
-    text = re.sub(r'\\+', '', text)
-    # 3. Специально для экранированных дефисов, точек, запятых и т.д.
-    text = re.sub(r'\\-', '-', text)
-    text = re.sub(r'\\.', '.', text)
-    text = re.sub(r'\\,', ',', text)
-    text = re.sub(r'\\;', ';', text)
-    text = re.sub(r'\\:', ':', text)
-    text = re.sub(r'\\!', '!', text)
-    text = re.sub(r'\\?', '?', text)
-    text = re.sub(r'\\(', '(', text)
-    text = re.sub(r'\\)', ')', text)
-    text = re.sub(r'\\~', '~', text)
-    text = re.sub(r'\\`', '`', text)
-    # 4. Убираем множественные пробелы и пробелы перед знаками препинания
-    text = re.sub(r'\s+', ' ', text)
-    text = re.sub(r' ,', ',', text)
-    text = re.sub(r' \.', '.', text)
-    text = re.sub(r' !', '!', text)
-    text = re.sub(r' \?', '?', text)
-    return text.strip()
+    try:
+        # 1. Удаляем все обратные слеши
+        text = text.replace('\\', '')
+        # 2. Убираем множественные пробелы
+        text = re.sub(r'\s+', ' ', text)
+        # 3. Убираем пробелы перед знаками препинания
+        text = re.sub(r' ,', ',', text)
+        text = re.sub(r' \.', '.', text)
+        text = re.sub(r' !', '!', text)
+        text = re.sub(r' \?', '?', text)
+        # 4. Убираем пробелы в начале и конце
+        return text.strip()
+    except Exception as e:
+        logger.error(f"clean_text error: {e}")
+        return text
 
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
@@ -212,7 +203,6 @@ def is_bad_image(alt_text):
     return False
 
 def search_pixabay(query):
-    """Поиск на Pixabay (основной источник)"""
     if not PIXABAY_API_KEY:
         logger.warning("⚠️ Pixabay API ключ не настроен!")
         return None
@@ -233,26 +223,21 @@ def search_pixabay(query):
         if not data.get("hits"):
             return None
         keywords = set(query.lower().split())
-        # Сначала ищем по тегам (tags) – они часто содержат ключевые слова
         for hit in data["hits"]:
             tags = hit.get("tags", "").lower()
             if is_bad_image(tags):
                 continue
             if any(word in tags for word in keywords):
                 return hit["largeImageURL"]
-        # Если не нашли по тегам, берём первое подходящее по комментариям
         for hit in data["hits"]:
-            if is_bad_image(hit.get("tags", "")):
-                continue
-            return hit["largeImageURL"]
-        # Крайний случай – берём первое вообще
+            if not is_bad_image(hit.get("tags", "")):
+                return hit["largeImageURL"]
         return data["hits"][0]["largeImageURL"] if data["hits"] else None
     except Exception as e:
         logger.error(f"Pixabay exception: {e}")
         return None
 
 def search_wikimedia(query):
-    """Поиск на Wikimedia (только для исторических логотипов/плакатов)"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     eng = extract_english_words(query)
     if not eng:
@@ -316,14 +301,11 @@ def search_wikimedia(query):
     return None
 
 def search_image(query):
-    """Гибридный поиск: Pixabay -> Wikimedia"""
     logger.info(f"🔍 Поиск фото для: {query}")
-    # 1. Pixabay
     url = search_pixabay(query)
     if url:
         logger.info(f"✅ Pixabay: {url}")
         return url
-    # 2. Wikimedia (fallback)
     url = search_wikimedia(query)
     if url:
         logger.info(f"✅ Wikimedia: {url}")
@@ -339,7 +321,7 @@ def generate_story(topic):
 - История должна быть законченной: вступление, основная часть, вывод или вопрос.
 - Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
-- ЗАПРЕЩЕНО использовать обратные слеши (\\) или экранирование в тексте. Никаких \-, \., \, и т.п.
+- ЗАПРЕЩЕНО использовать обратные слеши (\) в тексте.
 
 Тема: {topic}
 
@@ -353,7 +335,10 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
+            try:
+                story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
+            except Exception as e:
+                logger.warning(f"Ошибка в re.sub: {e}, пропускаем")
             story = clean_text(story)
             return story
         else:
