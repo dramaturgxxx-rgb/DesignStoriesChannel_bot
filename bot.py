@@ -9,7 +9,7 @@ import sys
 import subprocess
 from datetime import datetime
 
-# Автоустановка ddgs (новая библиотека)
+# Автоустановка ddgs
 try:
     from ddgs import DDGS
 except ImportError:
@@ -27,7 +27,6 @@ BOT_TOKEN = "8775611192:AAFsC5xlkQX9ijC8vQd6OEjgdWxQpEAOjMQ"
 CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
 MODEL = "deepseek/deepseek-v4-flash"
-PIXABAY_API_KEY = "4565619-33976f9ea2f6dc09d5d97cd59"
 
 TEST_MODE = True
 TEST_INTERVAL = 60
@@ -37,115 +36,58 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-TOPICS = [
-    "ретро логотип Coca-Cola",
-    "винтажная вывеска Coca-Cola",
-    "старый плакат Coca-Cola",
-    "ретро логотип Apple",
-    "винтажный компьютер Apple",
-    "старый логотип Nike",
-    "винтажный плакат Nike",
-    "ретро логотип Adidas",
-    "старый логотип Puma",
-    "винтажный автомобиль Volkswagen",
-    "ретро автомобиль Mercedes-Benz",
-    "старый логотип Mercedes",
-    "винтажная вывеска Chanel",
-    "ретро плакат Chanel",
-    "старый логотип Chanel",
-    "плакат Баухаус",
-    "винтажный плакат Баухаус",
-    "интерьер Баухаус",
-    "советский плакат",
-    "ретро советский плакат",
-    "конструктивизм плакат",
-    "стул Тонета винтаж",
-    "старый стул Тонета",
-    "кресло Wassily",
-    "стул Eames lounge",
-    "ретро кресло Eames",
-    "шрифт Helvetica вывеска",
-    "винтажный шрифт Helvetica",
-    "шрифт Futura ретро",
-    "старый шрифт Futura",
-    "плакат Тулуз-Лотрека",
-    "ретро плакат Тулуз-Лотрека",
-    "плакат Альфонса Мухи",
-    "винтажный плакат Мухи",
-    "старый телефон",
-    "винтажный радиоприемник",
-    "ретро фотоаппарат",
-    "старый телевизор",
-    "винтажные часы",
-    "ретро часы Rolex",
-    "старый автомобиль Ford",
-    "винтажный мотоцикл",
-    "ретро трамвай",
-    "старый паровоз",
-    "винтажное здание",
-    "архитектура ар-деко",
-    "старый завод",
-    "ретро кафе интерьер",
-    "винтажная витрина",
-    "старая библиотека",
-    "советский жилой дом",
-    "ретро реклама сигарет",
-    "старая упаковка чая",
-    "винтажная коробка конфет",
-    "советская упаковка",
-    "ретро этикетка вина",
-    "старая вывеска парикмахерской",
-    "винтажный постер путешествий",
-    "ретро плакат мода",
-    "плакат поп-арт",
-    "ретро игрушка",
-    "винтажная посуда",
-    "старый глобус",
-    "винтажная карта",
-    "ретро газета",
-    "старый журнал",
-    "винтажный костюм",
-    "ретро платье",
-    "старые часы",
-    "винтажные очки",
-    "кожаная сумка ретро",
-    "шляпа 40-х",
-    "ретро обувь",
-    "старый галстук",
-    "винтажное кольцо",
-    "старый зонт",
-    "ретро светильник",
-    "винтажная лампа",
-    "старый комод",
-    "мебель скандинавский дизайн",
-    "стул послевоенный",
-    "кресло 50-х",
-    "шкаф ретро",
-    "стул пластиковый 60-х",
-    "винтажное зеркало",
-    "старый торшер",
-    "мебель ар-деко",
-    "ретро автомобиль Chevrolet",
-    "классический кадиллак",
-    "винтажный велосипед",
-    "старый мотоцикл Harley",
-    "винтажный кинотеатр",
-    "старая аптека",
-    "кинотеатр 50-х",
-    "городской пейзаж ретро",
-    "ресторан ретро",
-    "старый вокзал",
-    "дом эпохи модерн",
-    "архитектура конструктивизм",
-    "ретро логотип IBM",
-    "старый логотип BMW",
-    "винтажный логотип Rolex",
-    "ретро вывеска Starbucks",
-    "старый плакат Disney",
-    "винтажный логотип NASA",
-    "ретро логотип Kodak",
-    "старый знак MTV"
+# БЕСКОНЕЧНЫЙ ГЕНЕРАТОР ТЕМ
+ERAS = [
+    "1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х",
+    "1980-х", "1990-х", "начало XX века", "середина XX века"
 ]
+STYLES = [
+    "конструктивизм", "ар-деко", "модерн", "баухаус", "поп-арт",
+    "минимализм", "функционализм", "скандинавский", "винтажный",
+    "ретро", "индустриальный", "органический"
+]
+OBJECTS = [
+    "логотип", "вывеска", "плакат", "реклама", "упаковка",
+    "этикетка", "афиша", "интерьер", "кафе", "витрина", "стул",
+    "кресло", "светильник", "лампа", "здание", "архитектура",
+    "автомобиль", "часы", "телефон", "радиоприемник", "фотоаппарат",
+    "телевизор", "журнал", "газета", "игрушка", "костюм", "платье"
+]
+BRANDS = [
+    "Coca-Cola", "Apple", "Nike", "Adidas", "Puma", "Volkswagen",
+    "Mercedes-Benz", "Chanel", "IBM", "BMW", "Ford", "Rolex", "Kodak",
+    "Disney", "NASA", "MTV", "Starbucks", "Levi's", "Harley-Davidson"
+]
+
+def generate_topic():
+    """Генерирует уникальную тему"""
+    era = random.choice(ERAS)
+    style = random.choice(STYLES)
+    obj = random.choice(OBJECTS)
+    brand = random.choice(BRANDS)
+    templates = [
+        f"{brand} {obj} {era}",
+        f"{style} {obj} {brand}",
+        f"{brand} {obj} ретро",
+        f"{era} {brand} {obj}",
+        f"{style} ретро {obj}",
+        f"{brand} винтажный {obj}"
+    ]
+    topic = random.choice(templates)
+    return ' '.join(topic.split()).lower()
+
+def get_unique_topic(published):
+    """Генерирует тему, которой нет в списке published"""
+    attempts = 0
+    while attempts < 500:
+        topic = generate_topic()
+        if topic not in published:
+            return topic
+        attempts += 1
+    # Если все комбинации исчерпаны (маловероятно) – сбрасываем историю
+    logger.info("📂 Все комбинации исчерпаны, сброс")
+    save_published([])
+    return generate_topic()
 
 def load_published():
     try:
@@ -168,22 +110,13 @@ def save_published(articles):
     except Exception as e:
         logger.error(f"Ошибка сохранения: {e}")
 
-def get_next_topic(published):
-    for topic in TOPICS:
-        if topic not in published:
-            return topic
-    logger.info("📂 Все темы использованы, сбрасываем историю")
-    save_published([])
-    return TOPICS[0]
-
 def clean_text(text):
     if not text:
         return text
     return text.replace('\\', '')
 
 def search_duckduckgo(query):
-    """Поиск изображений через DuckDuckGo (с задержкой)"""
-    time.sleep(3)  # Задержка, чтобы не превысить лимит
+    time.sleep(2)
     try:
         logger.info(f"🔍 DuckDuckGo: {query}")
         with DDGS() as ddgs:
@@ -193,47 +126,89 @@ def search_duckduckgo(query):
                 if image_url:
                     logger.info(f"✅ Найдено: {image_url}")
                     return image_url
-            logger.warning("❌ Ничего не найдено")
             return None
     except Exception as e:
         logger.error(f"DuckDuckGo error: {e}")
         return None
 
-def search_pixabay(query):
-    """Поиск на Pixabay (резерв)"""
-    if not PIXABAY_API_KEY:
-        return None
-    try:
-        url = "https://pixabay.com/api/"
-        params = {
-            "key": PIXABAY_API_KEY,
-            "q": query,
-            "image_type": "photo",
-            "per_page": 1,
-            "orientation": "horizontal"
-        }
-        response = requests.get(url, params=params, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("hits") and len(data["hits"]) > 0:
-                return data["hits"][0]["largeImageURL"]
-    except Exception as e:
-        logger.error(f"Pixabay error: {e}")
+def search_image(topic, story):
+    """
+    Формирует точный запрос для поиска картинки на основе темы и истории.
+    Извлекает ключевые слова: бренды, годы, стили, объекты.
+    """
+    # Из темы берём всё, что есть
+    keywords = topic.split()
+    # Добавляем уточнения в зависимости от объекта
+    if any(w in topic for w in ['логотип', 'logo']):
+        keywords.append('logo')
+        keywords.append('vintage logo')
+    if any(w in topic for w in ['плакат', 'постер', 'poster']):
+        keywords.append('poster')
+        keywords.append('vintage poster')
+    if any(w in topic for w in ['стул', 'кресло', 'chair']):
+        keywords.append('chair')
+        keywords.append('vintage chair')
+    if any(w in topic for w in ['шрифт', 'font']):
+        keywords.append('font')
+        keywords.append('typography')
+    if any(w in topic for w in ['вывеска', 'sign']):
+        keywords.append('sign')
+        keywords.append('vintage sign')
+    if any(w in topic for w in ['автомобиль', 'car']):
+        keywords.append('car')
+        keywords.append('vintage car')
+    if any(w in topic for w in ['этикетка', 'label']):
+        keywords.append('label')
+        keywords.append('vintage label')
+    if any(w in topic for w in ['реклама', 'advertising']):
+        keywords.append('advertising')
+        keywords.append('vintage advertising')
+    if any(w in topic for w in ['костюм', 'платье']):
+        keywords.append('vintage fashion')
+        keywords.append('retro clothing')
+    # Добавляем общие уточнения
+    keywords.append('design')
+    keywords.append('retro')
+
+    # Формируем несколько запросов и пробуем их по порядку
+    queries = []
+    # Сначала точный запрос с брендом, если он есть
+    for brand in BRANDS:
+        if brand.lower() in topic:
+            queries.append(f'"{brand}" {" ".join(keywords[:3])} vintage')
+            queries.append(f'"{brand}" {" ".join(keywords[:2])} retro')
+            break
+    # Общий запрос из темы
+    queries.append(' '.join(keywords[:5]))
+    # Запрос только из темы
+    queries.append(topic)
+
+    queries = list(dict.fromkeys(queries))  # убираем дубли
+
+    for q in queries:
+        url = search_duckduckgo(q)
+        if url:
+            return url
     return None
 
-def search_image(query):
-    """Сначала DuckDuckGo, если не нашёл — Pixabay"""
-    logger.info(f"🔍 Поиск фото: {query}")
-    url = search_duckduckgo(query)
-    if url:
-        return url
-    # Резерв
-    logger.info("🔄 DuckDuckGo не дал результат, пробуем Pixabay")
-    url = search_pixabay(query)
-    if url:
-        logger.info(f"✅ Pixabay: {url}")
-        return url
-    logger.warning("❌ Фото не найдено")
+def download_image(url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www.google.com/',
+        'Connection': 'keep-alive'
+    }
+    for attempt in range(3):
+        try:
+            response = requests.get(url, headers=headers, timeout=20)
+            if response.status_code == 200 and len(response.content) > 5000:
+                return response.content
+            time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Попытка {attempt+1} скачать: {e}")
+            time.sleep(1)
     return None
 
 def generate_story(topic):
@@ -242,7 +217,7 @@ def generate_story(topic):
 Важные требования:
 - Объём: ровно 700–800 символов.
 - Заголовок — **жирным**.
-- Пиши живым, разговорным языком.
+- Пиши живым, разговорным языком, но **от третьего лица** (не используй "я", "мне", "мой", "мы").
 - НЕ ИСПОЛЬЗУЙ обратную косую черту (\).
 
 Тема: {topic}
@@ -257,6 +232,8 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
+            # Дополнительная очистка от "я" на случай, если модель всё равно использует
+            story = re.sub(r'\b(я|мне|мой|моя|моё|мои|мы|нас|наш|наша)\b', '', story, flags=re.IGNORECASE)
             story = clean_text(story)
             return story
         else:
@@ -286,20 +263,20 @@ def publish_to_channel(text, image_url):
     if image_url:
         try:
             logger.info(f"📥 Скачиваем")
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            img_response = requests.get(image_url, headers=headers, timeout=30)
-            if img_response.status_code == 200:
-                img_data = img_response.content
-                if len(img_data) <= 20 * 1024 * 1024:
-                    caption = clean_text(text[:1024])
-                    files = {'photo': ('image.jpg', img_data)}
-                    data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
-                    resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
-                    if resp.status_code == 200:
-                        logger.info("✅ Пост с картинкой")
-                        return True
+            img_data = download_image(image_url)
+            if img_data and len(img_data) <= 20 * 1024 * 1024:
+                caption = clean_text(text[:1024])
+                files = {'photo': ('image.jpg', img_data)}
+                data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
+                resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
+                if resp.status_code == 200:
+                    logger.info("✅ Пост с картинкой")
+                    return True
+                else:
+                    logger.error(f"Telegram error: {resp.text}")
         except Exception as e:
             logger.error(f"Image error: {e}")
+    # Только текст
     safe_text = clean_text(text[:4096])
     payload = {'chat_id': CHANNEL_ID, 'text': safe_text, 'parse_mode': 'Markdown'}
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
@@ -314,24 +291,38 @@ def create_and_publish():
     logger.info("=" * 40)
     logger.info("🚀 Новый пост")
     published = load_published()
-    topic = get_next_topic(published)
+
+    # Генерируем уникальную тему
+    topic = get_unique_topic(published)
     logger.info(f"📌 Тема: {topic}")
 
-    image_url = search_image(topic)
-    if not image_url:
-        alt_topic = get_next_topic(published + [topic])
-        logger.info(f"🔄 Альтернатива: {alt_topic}")
-        image_url = search_image(alt_topic)
-        if image_url:
-            topic = alt_topic
-            logger.info(f"✅ Найдена картинка для '{topic}'")
-        else:
-            logger.warning("⚠️ Без картинки")
-
+    # Сначала генерируем историю
     story = generate_story(topic)
     if not story:
         logger.error("❌ История не сгенерирована")
         return False
+
+    # Теперь ищем картинку, используя тему и историю для точных ключевых слов
+    image_url = search_image(topic, story)
+
+    # Если не нашли картинку – пробуем альтернативную тему (перегенерируем)
+    if not image_url:
+        logger.info("🔄 Картинка не найдена, пробуем другую тему")
+        # Сохраняем текущую тему как использованную, чтобы не повторять
+        published.append(topic)
+        save_published(published)
+        # Генерируем новую тему и историю
+        topic = get_unique_topic(published)
+        logger.info(f"📌 Новая тема: {topic}")
+        story = generate_story(topic)
+        if not story:
+            logger.error("❌ История не сгенерирована для новой темы")
+            return False
+        image_url = search_image(topic, story)
+        if image_url:
+            logger.info(f"✅ Найдена картинка для новой темы")
+        else:
+            logger.warning("⚠️ Без картинки")
 
     header = "📐 **Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
@@ -345,7 +336,7 @@ def create_and_publish():
         logger.info(f"✅ Опубликовано: {topic}")
         return True
     else:
-        logger.error("❌ Ошибка")
+        logger.error("❌ Ошибка публикации")
         return False
 
 def run_schedule():
