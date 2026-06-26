@@ -25,7 +25,6 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# ФИКСИРОВАННЫЙ СПИСОК ТЕМ (110 штук, проверены)
 TOPICS = [
     "ретро логотип Coca-Cola",
     "винтажная вывеска Coca-Cola",
@@ -118,8 +117,6 @@ TOPICS = [
     "классический кадиллак",
     "винтажный велосипед",
     "старый мотоцикл Harley",
-    "ретро трамвай",
-    "старый паровоз",
     "винтажный кинотеатр",
     "старая аптека",
     "кинотеатр 50-х",
@@ -127,7 +124,6 @@ TOPICS = [
     "ресторан ретро",
     "старый вокзал",
     "дом эпохи модерн",
-    "советский жилой дом",
     "архитектура конструктивизм",
     "ретро логотип IBM",
     "старый логотип BMW",
@@ -171,21 +167,13 @@ def get_next_topic(published):
     return TOPICS[0]
 
 def clean_text(text):
-    """Удаляет все обратные слеши и экранированные символы (включая \- \. \, и т.п.)"""
+    """Удаляет все обратные слеши и экранированные символы"""
+    if not text:
+        return text
     # Удаляем все слеши, стоящие перед любым символом
     text = re.sub(r'\\(.)', r'\1', text)
     # Убираем возможные двойные слеши
     text = re.sub(r'\\+', '', text)
-    # Удаляем экранированные дефисы, точки, запятые и т.п.
-    text = re.sub(r'\\-', '-', text)
-    text = re.sub(r'\\.', '.', text)
-    text = re.sub(r'\\,', ',', text)
-    text = re.sub(r'\\;', ';', text)
-    text = re.sub(r'\\:', ':', text)
-    text = re.sub(r'\\!', '!', text)
-    text = re.sub(r'\\?', '?', text)
-    text = re.sub(r'\\(', '(', text)
-    text = re.sub(r'\\)', ')', text)
     return text
 
 def extract_english_words(text):
@@ -201,35 +189,35 @@ def is_bad_image(alt_text):
     return False
 
 def search_pexels(query):
-    """Поиск фото с жёсткой фильтрацией"""
+    """Поиск фото с жёсткой фильтрацией по alt"""
     if not PEXELS_API_KEY:
         logger.warning("⚠️ Pexels API ключ не настроен!")
         return None
 
-    # Определяем тип запроса для точного поиска
     eng = extract_english_words(query)
     base = ' '.join(eng) if eng else query
 
     queries = [query]
     if eng:
         queries.append(base)
+        # Точные запросы для логотипов, плакатов и т.д.
         if any(w in query for w in ['логотип', 'logo']):
-            queries.append(f"{base} logo")
-            queries.append(f"vintage {base} logo")
+            queries.append(f"\"{base}\" logo vintage")
+            queries.append(f"\"{base}\" emblem retro")
         if any(w in query for w in ['плакат', 'постер', 'poster']):
-            queries.append(f"{base} poster")
-            queries.append(f"vintage {base} poster")
+            queries.append(f"\"{base}\" poster vintage")
+            queries.append(f"\"{base}\" wall art retro")
         if any(w in query for w in ['стул', 'кресло', 'chair']):
-            queries.append(f"{base} chair")
-            queries.append(f"vintage {base} chair")
+            queries.append(f"\"{base}\" chair vintage")
+            queries.append(f"retro {base} chair")
         if any(w in query for w in ['шрифт', 'font']):
-            queries.append(f"{base} font")
+            queries.append(f"\"{base}\" font vintage")
         if any(w in query for w in ['автомобиль', 'car']):
-            queries.append(f"vintage {base} car")
+            queries.append(f"\"{base}\" vintage car")
         if any(w in query for w in ['вывеска', 'sign']):
-            queries.append(f"vintage {base} sign")
+            queries.append(f"\"{base}\" vintage sign")
         if any(w in query for w in ['часы', 'watch']):
-            queries.append(f"vintage {base} watch")
+            queries.append(f"\"{base}\" vintage watch")
         queries.append(f"vintage {base}")
         queries.append(f"retro {base}")
     queries = list(dict.fromkeys(queries))
@@ -239,7 +227,7 @@ def search_pexels(query):
             logger.info(f"🔍 Ищем на Pexels: {q}")
             url = "https://api.pexels.com/v1/search"
             headers = {"Authorization": PEXELS_API_KEY}
-            params = {"query": q, "per_page": 20, "orientation": "landscape", "size": "large"}
+            params = {"query": q, "per_page": 30, "orientation": "landscape", "size": "large"}
             response = requests.get(url, headers=headers, params=params, timeout=10)
             if response.status_code != 200:
                 continue
@@ -248,20 +236,19 @@ def search_pexels(query):
                 continue
 
             keywords = set(q.lower().split())
-            # Сначала ищем фото, в alt которого есть минимум 2 ключевых слова
+            # Сначала ищем фото, где alt содержит минимум 2 ключевых слова
             for photo in data["photos"]:
                 alt = photo.get("alt", "")
                 if is_bad_image(alt):
                     continue
                 alt_lower = alt.lower()
-                # Считаем совпадения
                 match_count = sum(1 for word in keywords if word in alt_lower)
-                if match_count >= 2:  # хотя бы два совпадения
+                if match_count >= 2:
                     photo_url = photo["src"]["large"]
                     logger.info(f"✅ Релевантное фото (2+ совпадений): {photo_url} (alt: {alt})")
                     return photo_url
 
-            # Если нет, ищем с 1 совпадением
+            # Затем с 1 совпадением
             for photo in data["photos"]:
                 alt = photo.get("alt", "")
                 if is_bad_image(alt):
@@ -295,7 +282,7 @@ def generate_story(topic):
 - Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
 - Никаких упоминаний политики, войн, нацизма, фюреров, свастик.
-- НЕ ИСПОЛЬЗУЙ обратные слеши (\\) или экранирование в тексте. Не ставь дефисы с пробелами.
+- НЕ ИСПОЛЬЗУЙ обратные слеши (\\) или экранирование в тексте.
 
 Тема: {topic}
 
@@ -330,6 +317,8 @@ def ensure_complete(text):
         return text + '.'
 
 def truncate_to_sentence(text, max_len):
+    # Сначала чистим текст от слешей
+    text = clean_text(text)
     if len(text) <= max_len:
         return ensure_complete(text)
     truncated = text[:max_len]
@@ -348,6 +337,7 @@ def escape_md(text):
     return ''.join('\\' + c if c in chars else c for c in text)
 
 def publish_to_channel(text, image_url):
+    # Финальная очистка текста
     text = clean_text(text)
 
     if image_url:
@@ -358,7 +348,7 @@ def publish_to_channel(text, image_url):
             if img_response.status_code == 200:
                 img_data = img_response.content
                 if len(img_data) <= 20 * 1024 * 1024:
-                    caption = escape_md(text[:1024])
+                    caption = escape_md(clean_text(text[:1024]))
                     files = {'photo': ('image.jpg', img_data)}
                     data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
                     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
@@ -389,10 +379,12 @@ def create_and_publish():
     topic = get_next_topic(published)
     logger.info(f"📌 Тема: {topic}")
 
+    # Ищем фото для основной темы
     image_url = search_pexels(topic)
     if not image_url:
+        # Если не нашлось, пробуем альтернативную тему (следующую)
         alt_topic = get_next_topic(published + [topic])
-        logger.info(f"🔄 Пробуем альтернативу: {alt_topic}")
+        logger.info(f"🔄 Пробуем альтернативную тему: {alt_topic}")
         image_url = search_pexels(alt_topic)
         if image_url:
             topic = alt_topic
