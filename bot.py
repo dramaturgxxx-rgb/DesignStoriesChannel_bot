@@ -8,10 +8,7 @@ import re
 import sys
 import subprocess
 from datetime import datetime
-from urllib.parse import quote
 
-# =============================================
-# Установка ddgs (если не установлена)
 try:
     from ddgs import DDGS
 except ImportError:
@@ -24,7 +21,6 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# ================= КОНФИГУРАЦИЯ =================
 BOT_TOKEN = "8775611192:AAFsC5xlkQX9ijC8vQd6OEjgdWxQpEAOjMQ"
 CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
@@ -38,7 +34,6 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# NSFW ФИЛЬТР
 NSFW_WORDS = [
     'porn', 'porno', 'xxx', 'sex', 'nude', 'naked', 'penis', 'vagina',
     'boobs', 'breast', 'ass', 'butt', 'orgy', 'bdsm', 'kink', 'fetish',
@@ -47,7 +42,6 @@ NSFW_WORDS = [
     'pussy', 'clit', 'anal', 'oral', 'blowjob', 'handjob', 'suck'
 ]
 
-# ===== РАСШИРЕННЫЕ СПИСКИ =====
 STYLES = [
     "баухаус", "ар-деко", "конструктивизм", "ар-нуво",
     "поп-арт", "модерн", "функционализм", "минимализм",
@@ -133,9 +127,8 @@ def is_nsfw(text):
             return True
     return False
 
-# ========== DUCKDUCKGO (ОСНОВНОЙ) ==========
 def search_duckduckgo_safe(query):
-    time.sleep(2.5)  # задержка для снижения риска 403
+    time.sleep(2.5)
     try:
         logger.info(f"🔍 DuckDuckGo: {query}")
         with DDGS() as ddgs:
@@ -160,9 +153,34 @@ def search_duckduckgo_safe(query):
         logger.error(f"DuckDuckGo error: {e}")
         return None
 
-def search_image(topic):
-    """Поиск через DuckDuckGo с несколькими вариантами запроса"""
+def search_image(topic, story):
+    """Сначала ищем по заголовку истории, если не нашлось – по теме"""
     logger.info(f"🔍 Поиск картинки для: {topic}")
+
+    # Извлекаем заголовок из истории (первая строка с **)
+    title_match = re.search(r'\*\*(.+?)\*\*', story)
+    if title_match:
+        title = title_match.group(1).strip()
+        logger.info(f"📌 Заголовок: {title}")
+        # Пробуем поискать по заголовку (удаляем лишние слова)
+        query = title
+        # Если заголовок длинный, берём первые 5 слов
+        words = query.split()
+        if len(words) > 6:
+            query = ' '.join(words[:6])
+        url = search_duckduckgo_safe(query)
+        if url:
+            return url
+        # Пробуем заголовок + "design" или "vintage"
+        url = search_duckduckgo_safe(query + " design")
+        if url:
+            return url
+        url = search_duckduckgo_safe(query + " vintage")
+        if url:
+            return url
+
+    # Если не нашлось – поиск по теме
+    logger.info("🔄 Заголовок не дал результата, ищем по теме")
     queries = [topic]
     if "плакат" in topic:
         queries.append(topic.replace("плакат", "poster"))
@@ -287,7 +305,7 @@ def create_and_publish():
     if not story:
         logger.error("❌ История не сгенерирована")
         return False
-    image_url = search_image(topic)
+    image_url = search_image(topic, story)
     if not image_url:
         logger.info("🔄 Пробуем другую тему")
         published.append(topic)
@@ -298,7 +316,7 @@ def create_and_publish():
         if not story:
             logger.error("❌ История не сгенерирована")
             return False
-        image_url = search_image(topic)
+        image_url = search_image(topic, story)
         if image_url:
             logger.info(f"✅ Найдена картинка")
         else:
