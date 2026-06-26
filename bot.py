@@ -14,8 +14,11 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "8775611192:AAFsC5xlkQX9ijC8vQd6OEjgdWxQpEAOjMQ"
 CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
-PEXELS_API_KEY = "DCFvixZFiwgT06gaGJr4YIqkcTHJnyhgeixlcSZW3pdnODo3Zq5QNexn"
 MODEL = "deepseek/deepseek-v4-flash"
+
+# ====== ВАШ КЛЮЧ PIXABAY ======
+PIXABAY_API_KEY = "4565619-33976f9ea2f6dc09d5d97cd59"
+# ===============================
 
 TEST_MODE = True
 TEST_INTERVAL = 60
@@ -25,6 +28,7 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
+# ФИКСИРОВАННЫЙ СПИСОК ТЕМ (110 шт.)
 TOPICS = [
     "ретро логотип Coca-Cola",
     "винтажная вывеска Coca-Cola",
@@ -135,93 +139,8 @@ TOPICS = [
     "старый знак MTV"
 ]
 
+# Стоп-слова для исключения животных/природы
 BAD_WORDS = ['animal', 'wild', 'nature', 'zoo', 'lion', 'tiger', 'panther', 'leopard', 'cheetah', 'jaguar', 'cat', 'predator', 'wildlife', 'safari', 'beast', 'claw', 'fang', 'fur', 'dog', 'wolf', 'bear', 'deer', 'fox', 'rabbit', 'bird', 'eagle', 'hawk', 'owl', 'fish', 'shark', 'whale', 'dolphin']
-
-# Словарь перевода ключевых слов для поиска на Pexels
-TOPIC_TRANSLATIONS = {
-    "ретро": "retro vintage",
-    "винтажный": "vintage",
-    "винтажная": "vintage",
-    "винтажное": "vintage",
-    "винтажные": "vintage",
-    "старый": "old classic",
-    "старая": "old classic",
-    "старое": "old classic",
-    "старые": "old classic",
-    "классический": "classic",
-    "логотип": "logo",
-    "плакат": "poster",
-    "постер": "poster",
-    "вывеска": "sign",
-    "стул": "chair",
-    "кресло": "armchair chair",
-    "шрифт": "font typography",
-    "автомобиль": "automobile car",
-    "мотоцикл": "motorcycle",
-    "велосипед": "bicycle",
-    "трамвай": "tram streetcar",
-    "паровоз": "steam locomotive",
-    "интерьер": "interior",
-    "упаковка": "packaging",
-    "этикетка": "label",
-    "часы": "watch clock",
-    "здание": "building architecture",
-    "архитектура": "architecture",
-    "реклама": "advertisement advertising",
-    "журнал": "magazine",
-    "газета": "newspaper",
-    "костюм": "suit costume",
-    "платье": "dress",
-    "очки": "glasses eyewear",
-    "сумка": "bag",
-    "шляпа": "hat",
-    "обувь": "shoes footwear",
-    "галстук": "tie necktie",
-    "кольцо": "ring jewelry",
-    "зонт": "umbrella",
-    "светильник": "lamp light",
-    "лампа": "lamp",
-    "комод": "dresser chest",
-    "шкаф": "cabinet wardrobe",
-    "зеркало": "mirror",
-    "торшер": "floor lamp",
-    "мебель": "furniture",
-    "телефон": "telephone phone",
-    "радиоприемник": "radio",
-    "фотоаппарат": "camera",
-    "телевизор": "television TV",
-    "игрушка": "toy",
-    "посуда": "tableware dishes",
-    "глобус": "globe",
-    "карта": "map",
-    "кафе": "cafe",
-    "витрина": "storefront window display",
-    "библиотека": "library",
-    "завод": "factory plant",
-    "вокзал": "train station",
-    "кинотеатр": "cinema movie theater",
-    "аптека": "pharmacy",
-    "ресторан": "restaurant",
-    "советский": "soviet",
-    "конструктивизм": "constructivism",
-    "коробка": "box packaging",
-    "парикмахерской": "barbershop",
-    "путешествий": "travel",
-    "мода": "fashion",
-    "компьютер": "computer",
-    "знак": "sign emblem",
-    "плакат": "poster",
-    "пейзаж": "cityscape landscape",
-    "городской": "urban city",
-    "дом": "house building",
-    "эпохи": "era period",
-    "модерн": "art nouveau",
-    "жилой": "residential",
-    "конфет": "candy box",
-    "сигарет": "cigarette",
-    "чая": "tea",
-    "вина": "wine",
-}
 
 def load_published():
     try:
@@ -240,7 +159,7 @@ def save_published(articles):
     try:
         with open(PUBLISHED_FILE, "w") as f:
             json.dump(articles[-2000:], f)
-        logger.info(f"Сохранено {len(articles)} тем")
+        logger.info(f"✅ Сохранено {len(articles)} тем")
     except Exception as e:
         logger.error(f"Ошибка сохранения: {e}")
 
@@ -248,31 +167,40 @@ def get_next_topic(published):
     for topic in TOPICS:
         if topic not in published:
             return topic
-    logger.info("Все темы использованы, сбрасываем историю")
+    logger.info("📂 Все темы использованы, сбрасываем историю")
     save_published([])
     return TOPICS[0]
 
 def clean_text(text):
-    """Удаляет все обратные слеши и экранированные символы"""
+    """Агрессивная очистка текста от всех обратных слешей и экранированных символов"""
     if not text:
         return text
+    # 1. Удаляем все последовательности \x (где x любой символ)
     text = re.sub(r'\\(.)', r'\1', text)
+    # 2. Удаляем все оставшиеся слеши (двойные, тройные и т.п.)
     text = re.sub(r'\\+', '', text)
-    return text
+    # 3. Специально для экранированных дефисов, точек, запятых и т.д.
+    text = re.sub(r'\\-', '-', text)
+    text = re.sub(r'\\.', '.', text)
+    text = re.sub(r'\\,', ',', text)
+    text = re.sub(r'\\;', ';', text)
+    text = re.sub(r'\\:', ':', text)
+    text = re.sub(r'\\!', '!', text)
+    text = re.sub(r'\\?', '?', text)
+    text = re.sub(r'\\(', '(', text)
+    text = re.sub(r'\\)', ')', text)
+    text = re.sub(r'\\~', '~', text)
+    text = re.sub(r'\\`', '`', text)
+    # 4. Убираем множественные пробелы и пробелы перед знаками препинания
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r' ,', ',', text)
+    text = re.sub(r' \.', '.', text)
+    text = re.sub(r' !', '!', text)
+    text = re.sub(r' \?', '?', text)
+    return text.strip()
 
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
-
-def translate_topic(topic):
-    """Переводит русские слова темы в английские для поиска на Pexels"""
-    result = topic
-    # Сортируем по длине (длинные сначала), чтобы не было частичных замен
-    for ru, en in sorted(TOPIC_TRANSLATIONS.items(), key=lambda x: -len(x[0])):
-        result = result.replace(ru, en)
-    # Оставляем только английские слова (латиница + цифры)
-    words = result.split()
-    english_words = [w for w in words if re.match(r'^[A-Za-z0-9\-]+$', w)]
-    return ' '.join(english_words) if english_words else None
 
 def is_bad_image(alt_text):
     if not alt_text:
@@ -283,9 +211,49 @@ def is_bad_image(alt_text):
             return True
     return False
 
+def search_pixabay(query):
+    """Поиск на Pixabay (основной источник)"""
+    if not PIXABAY_API_KEY:
+        logger.warning("⚠️ Pixabay API ключ не настроен!")
+        return None
+    try:
+        url = "https://pixabay.com/api/"
+        params = {
+            "key": PIXABAY_API_KEY,
+            "q": query,
+            "image_type": "photo",
+            "per_page": 10,
+            "orientation": "horizontal"
+        }
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code != 200:
+            logger.warning(f"Pixabay error: {response.status_code}")
+            return None
+        data = response.json()
+        if not data.get("hits"):
+            return None
+        keywords = set(query.lower().split())
+        # Сначала ищем по тегам (tags) – они часто содержат ключевые слова
+        for hit in data["hits"]:
+            tags = hit.get("tags", "").lower()
+            if is_bad_image(tags):
+                continue
+            if any(word in tags for word in keywords):
+                return hit["largeImageURL"]
+        # Если не нашли по тегам, берём первое подходящее по комментариям
+        for hit in data["hits"]:
+            if is_bad_image(hit.get("tags", "")):
+                continue
+            return hit["largeImageURL"]
+        # Крайний случай – берём первое вообще
+        return data["hits"][0]["largeImageURL"] if data["hits"] else None
+    except Exception as e:
+        logger.error(f"Pixabay exception: {e}")
+        return None
+
 def search_wikimedia(query):
-    """Поиск на Wikimedia Commons (для исторических логотипов и плакатов)"""
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+    """Поиск на Wikimedia (только для исторических логотипов/плакатов)"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
     eng = extract_english_words(query)
     if not eng:
         return None
@@ -340,68 +308,28 @@ def search_wikimedia(query):
                         if desc:
                             desc_lower = desc.lower()
                             if any(word.lower() in desc_lower for word in eng):
-                                logger.info(f"Wikimedia: {url_img}")
                                 return url_img
                         else:
-                            logger.info(f"Wikimedia (без описания): {url_img}")
                             return url_img
         except Exception as e:
             logger.error(f"Wikimedia error: {e}")
     return None
 
-def search_pexels(query):
-    """Поиск на Pexels с переводом темы на английский"""
-    if not PEXELS_API_KEY:
-        return None
-
-    eng = extract_english_words(query)
-    translated = translate_topic(query)
-
-    queries = []
-    # Приоритет — переведённый запрос
-    if translated:
-        queries.append(translated)
-        queries.append(f"vintage {translated}")
-        queries.append(f"retro {translated}")
-    # Дополнительно — английские слова из оригинала (бренды и т.п.)
-    if eng:
-        base = ' '.join(eng)
-        if base.lower() not in (translated or '').lower():
-            queries.append(f"vintage {base}")
-            queries.append(f"retro {base}")
-    queries = list(dict.fromkeys(queries))
-
-    for q in queries:
-        try:
-            logger.info(f"Ищем на Pexels: {q}")
-            url = "https://api.pexels.com/v1/search"
-            headers = {"Authorization": PEXELS_API_KEY}
-            params = {"query": q, "per_page": 15, "orientation": "landscape", "size": "large"}
-            response = requests.get(url, headers=headers, params=params, timeout=10)
-            if response.status_code != 200:
-                continue
-            data = response.json()
-            if not data.get("photos"):
-                continue
-            for photo in data["photos"]:
-                alt = photo.get("alt", "")
-                if is_bad_image(alt):
-                    continue
-                photo_url = photo["src"]["large"]
-                logger.info(f"Pexels OK: {photo_url} (alt: {alt})")
-                return photo_url
-        except Exception as e:
-            logger.error(f"Pexels exception: {e}")
-    return None
-
 def search_image(query):
-    """Гибридный поиск: сначала Pexels, если не нашлось — Wikimedia"""
-    logger.info(f"Поиск картинки для: {query}")
-    url = search_pexels(query)
+    """Гибридный поиск: Pixabay -> Wikimedia"""
+    logger.info(f"🔍 Поиск фото для: {query}")
+    # 1. Pixabay
+    url = search_pixabay(query)
     if url:
+        logger.info(f"✅ Pixabay: {url}")
         return url
-    logger.info("Pexels не нашёл, пробуем Wikimedia")
-    return search_wikimedia(query)
+    # 2. Wikimedia (fallback)
+    url = search_wikimedia(query)
+    if url:
+        logger.info(f"✅ Wikimedia: {url}")
+        return url
+    logger.warning("❌ Фото не найдено ни в одном источнике")
+    return None
 
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
@@ -411,8 +339,7 @@ def generate_story(topic):
 - История должна быть законченной: вступление, основная часть, вывод или вопрос.
 - Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
-- НИКАКИХ обратных слешей (\\) в тексте.
-- НИКАКИХ экранированных символов.
+- ЗАПРЕЩЕНО использовать обратные слеши (\\) или экранирование в тексте. Никаких \-, \., \, и т.п.
 
 Тема: {topic}
 
@@ -462,8 +389,7 @@ def truncate_to_sentence(text, max_len):
             return ensure_complete(truncated + '...')
 
 def escape_md(text):
-    """Экранируем только символы, которые реально ломают Markdown в Telegram Bot API (не MarkdownV2)"""
-    chars = '_*'
+    chars = r'_*#+-=|{}>'
     return ''.join('\\' + c if c in chars else c for c in text)
 
 def publish_to_channel(text, image_url):
@@ -471,8 +397,8 @@ def publish_to_channel(text, image_url):
 
     if image_url:
         try:
-            logger.info(f"Скачиваем: {image_url}")
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+            logger.info(f"📥 Скачиваем: {image_url}")
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
             img_response = requests.get(image_url, headers=headers, timeout=30)
             if img_response.status_code == 200:
                 img_data = img_response.content
@@ -482,10 +408,8 @@ def publish_to_channel(text, image_url):
                     data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
                     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
                     if resp.status_code == 200:
-                        logger.info("Пост с картинкой опубликован")
+                        logger.info("✅ Пост с картинкой")
                         return True
-                    else:
-                        logger.warning(f"sendPhoto failed: {resp.text}")
             logger.warning("Не удалось отправить фото, публикуем текст")
             image_url = None
         except Exception as e:
@@ -496,7 +420,7 @@ def publish_to_channel(text, image_url):
     payload = {'chat_id': CHANNEL_ID, 'text': safe_text, 'parse_mode': 'Markdown'}
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
     if resp.status_code == 200:
-        logger.info("Текст опубликован")
+        logger.info("✅ Текст опубликован")
         return True
     else:
         logger.error(f"Text error: {resp.text}")
@@ -504,26 +428,26 @@ def publish_to_channel(text, image_url):
 
 def create_and_publish():
     logger.info("=" * 40)
-    logger.info("Генерация нового поста")
+    logger.info("🚀 Генерация нового поста")
     published = load_published()
 
     topic = get_next_topic(published)
-    logger.info(f"Тема: {topic}")
+    logger.info(f"📌 Тема: {topic}")
 
     image_url = search_image(topic)
     if not image_url:
         alt_topic = get_next_topic(published + [topic])
-        logger.info(f"Пробуем альтернативную тему: {alt_topic}")
+        logger.info(f"🔄 Пробуем альтернативную тему: {alt_topic}")
         image_url = search_image(alt_topic)
         if image_url:
             topic = alt_topic
-            logger.info(f"Для '{topic}' найдена картинка")
+            logger.info(f"✅ Для '{topic}' найдена картинка")
         else:
-            logger.warning(f"Для '{topic}' картинка не найдена, публикуем без фото")
+            logger.warning(f"⚠️ Для '{topic}' картинка не найдена, публикуем без фото")
 
     story = generate_story(topic)
     if not story:
-        logger.error("История не сгенерирована")
+        logger.error("❌ История не сгенерирована")
         return False
 
     header = "📐 **Истории про дизайн**\n\n"
@@ -535,21 +459,21 @@ def create_and_publish():
     if success:
         published.append(topic)
         save_published(published)
-        logger.info(f"Пост опубликован (тема: {topic})")
+        logger.info(f"✅ Пост опубликован (тема: {topic})")
         return True
     else:
-        logger.error("Ошибка публикации")
+        logger.error("❌ Ошибка публикации")
         return False
 
 def run_schedule():
-    logger.info("Бот запущен")
+    logger.info("⏰ Бот запущен")
     if TEST_MODE:
-        logger.info(f"Тестовый режим: пост каждые {TEST_INTERVAL} секунд")
+        logger.info(f"🧪 Тестовый режим: пост каждые {TEST_INTERVAL} секунд")
         while True:
             create_and_publish()
             time.sleep(TEST_INTERVAL)
     else:
-        logger.info("Обычный режим: посты в 10:00, 15:00, 20:00 UTC")
+        logger.info("⏰ Обычный режим: посты в 10:00, 15:00, 20:00 UTC")
         while True:
             now = datetime.now()
             next_run = None
@@ -558,10 +482,9 @@ def run_schedule():
                     next_run = now.replace(hour=hour, minute=0, second=0, microsecond=0)
                     break
             if not next_run:
-                from datetime import timedelta
-                next_run = (now + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
+                next_run = now.replace(day=now.day + 1, hour=10, minute=0, second=0, microsecond=0)
             wait_seconds = (next_run - now).total_seconds()
-            logger.info(f"Следующий пост в {next_run.strftime('%H:%M')} UTC (через {int(wait_seconds/60)} мин)")
+            logger.info(f"⏳ Следующий пост в {next_run.strftime('%H:%M')} UTC (через {int(wait_seconds/60)} мин)")
             time.sleep(wait_seconds)
             create_and_publish()
 
