@@ -15,18 +15,21 @@ BOT_TOKEN = "8775611192:AAFsC5xlkQX9ijC8vQd6OEjgdWxQpEAOjMQ"
 CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
 
+# ====== ВАШ PEXELS API КЛЮЧ (уже вставлен) ======
+PEXELS_API_KEY = "DCFvixZFiwgT06gaGJr4YIqkcTHJnyhgeixlcSZW3pdnODo3Zq5QNexn"
+# ================================================
+
 MODEL = "deepseek/deepseek-v4-flash"
 
 TEST_MODE = True
 TEST_INTERVAL = 60
 
-# Путь к файлу с использованными темами
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PUBLISHED_FILE = os.path.join(BASE_DIR, "published_design.json")
+# Путь к файлу с использованными темами (в /app/data, как у вас на сервере)
+PUBLISHED_FILE = "/app/data/published_design.json"
+os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# Уникальные темы (без дублей)
 TOPICS = [
     "логотип Apple",
     "логотип Nike",
@@ -53,119 +56,56 @@ TOPICS = [
 ]
 
 def load_published():
-    global PUBLISHED_FILE
     try:
         if os.path.exists(PUBLISHED_FILE):
             with open(PUBLISHED_FILE, "r") as f:
                 data = json.load(f)
-                if isinstance(data, list):
-                    return data
-                else:
-                    return []
+                return data if isinstance(data, list) else []
         else:
-            with open(PUBLISHED_FILE, "w") as f:
-                json.dump([], f)
+            save_published([])
             return []
     except Exception as e:
         logger.error(f"Ошибка загрузки published: {e}")
-        # fallback на /tmp
-        PUBLISHED_FILE = "/tmp/published_design.json"
-        if os.path.exists(PUBLISHED_FILE):
-            with open(PUBLISHED_FILE, "r") as f:
-                return json.load(f)
-        else:
-            with open(PUBLISHED_FILE, "w") as f:
-                json.dump([], f)
-            return []
+        return []
 
 def save_published(articles):
     try:
         with open(PUBLISHED_FILE, "w") as f:
             json.dump(articles[-100:], f)
-        logger.info(f"✅ Сохранено {len(articles)} тем в {PUBLISHED_FILE}")
+        logger.info(f"✅ Сохранено {len(articles)} тем")
     except Exception as e:
-        logger.error(f"Ошибка сохранения published: {e}")
+        logger.error(f"Ошибка сохранения: {e}")
 
 def escape_md(text):
     chars = r'_*[]()~`>#+-=|{}'
     return ''.join('\\' + c if c in chars else c for c in text)
 
-def extract_english_words(text):
-    return re.findall(r'[A-Za-z0-9]+', text)
-
-def search_wikimedia(query):
-    """Ищет изображения на Wikimedia Commons с мягкими фильтрами"""
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-    eng_words = extract_english_words(query)
-    if not eng_words:
-        eng_words = [query]
-    
-    queries = []
-    base = ' '.join(eng_words)
-    for cat in ['Logos', 'Posters', 'Design', 'Furniture', 'Typography']:
-        queries.append(f'"{base}" incategory:"{cat}"')
-    queries.append(base)
-    if len(eng_words) > 1:
-        queries.append(eng_words[0])
-    queries = list(dict.fromkeys(queries))
-    
-    for q in queries:
-        try:
-            logger.info(f"🔍 Ищем на Wikimedia: {q}")
-            search_url = "https://commons.wikimedia.org/w/api.php"
-            params = {
-                "action": "query",
-                "format": "json",
-                "list": "search",
-                "srsearch": q,
-                "srnamespace": 6,
-                "srlimit": 20,
-                "srwhat": "text"
-            }
-            response = requests.get(search_url, params=params, headers=headers, timeout=15)
-            if response.status_code != 200:
-                continue
+def search_pexels(query):
+    """Ищет изображение на Pexels по запросу"""
+    try:
+        url = "https://api.pexels.com/v1/search"
+        headers = {"Authorization": PEXELS_API_KEY}
+        params = {
+            "query": query,
+            "per_page": 1,
+            "orientation": "landscape"
+        }
+        response = requests.get(url, headers=headers, params=params, timeout=10)
+        if response.status_code == 200:
             data = response.json()
-            if not data.get("query", {}).get("search"):
-                continue
-            
-            for result in data["query"]["search"]:
-                title = result["title"]
-                title_lower = title.lower()
-                if not any(word.lower() in title_lower for word in eng_words):
-                    continue
-                
-                info_params = {
-                    "action": "query",
-                    "format": "json",
-                    "titles": title,
-                    "prop": "imageinfo",
-                    "iiprop": "url|extmetadata"
-                }
-                info_resp = requests.get(search_url, params=info_params, headers=headers, timeout=15)
-                if info_resp.status_code != 200:
-                    continue
-                info_data = info_resp.json()
-                for page in info_data.get("query", {}).get("pages", {}).values():
-                    if not page.get("imageinfo"):
-                        continue
-                    url = page["imageinfo"][0]["url"]
-                    if not re.search(r'\.(jpg|jpeg)(\?.*)?$', url, re.I):
-                        continue
-                    desc = page["imageinfo"][0].get("extmetadata", {}).get("ImageDescription", {}).get("value", "")
-                    if desc:
-                        desc_lower = desc.lower()
-                        if any(word.lower() in desc_lower for word in eng_words):
-                            logger.info(f"✅ Найдено релевантное изображение: {url}")
-                            return url
-                    else:
-                        logger.info(f"✅ Найдено изображение (без описания): {url}")
-                        return url
-        except Exception as e:
-            logger.error(f"Ошибка при поиске '{q}': {e}")
-    
-    logger.warning("❌ Подходящее изображение не найдено")
-    return None
+            if data.get("photos") and len(data["photos"]) > 0:
+                photo_url = data["photos"][0]["src"]["large"]
+                logger.info(f"✅ Найдено на Pexels: {photo_url}")
+                return photo_url
+            else:
+                logger.warning(f"❌ Нет фото для '{query}'")
+                return None
+        else:
+            logger.error(f"Pexels ошибка: {response.status_code}")
+            return None
+    except Exception as e:
+        logger.error(f"Pexels exception: {e}")
+        return None
 
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
@@ -196,8 +136,8 @@ def generate_story(topic):
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
-            story = re.sub(r'\\+', '', story)
-            story = re.sub(r'\(', '(', story)
+            story = re.sub(r'\\+', '', story)          # убираем все слеши
+            story = re.sub(r'\(', '(', story)          # нормализуем скобки
             story = re.sub(r'\)', ')', story)
             return story
         else:
@@ -236,7 +176,7 @@ def publish_to_channel(text, image_url):
     
     if image_url:
         try:
-            logger.info(f"📥 Скачиваем JPG: {image_url}")
+            logger.info(f"📥 Скачиваем изображение: {image_url}")
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
             img_response = requests.get(image_url, headers=headers, timeout=30)
             if img_response.status_code != 200:
@@ -245,44 +185,32 @@ def publish_to_channel(text, image_url):
             else:
                 img_data = img_response.content
                 file_size = len(img_data)
-                logger.info(f"Размер файла: {file_size} байт")
                 if file_size > 20 * 1024 * 1024:
-                    logger.warning(f"Изображение слишком большое ({file_size} байт), пропускаем")
+                    logger.warning(f"Слишком большое: {file_size} байт")
                     image_url = None
                 else:
                     caption = escape_md(text[:1024])
-                    if file_size > 5 * 1024 * 1024:
-                        logger.info("Файл >5 МБ, отправляем как документ")
-                        files = {'document': ('image.jpg', img_data)}
-                        data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
-                        resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument", files=files, data=data, timeout=30)
-                    else:
-                        files = {'photo': ('image.jpg', img_data)}
-                        data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
-                        resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
-                    
+                    files = {'photo': ('image.jpg', img_data)}
+                    data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
+                    resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
                     if resp.status_code == 200:
                         logger.info("✅ Пост с картинкой опубликован")
                         return True
                     else:
-                        logger.error(f"Telegram image error: {resp.status_code} - {resp.text[:200]}")
+                        logger.error(f"Telegram error: {resp.status_code}")
                         image_url = None
         except Exception as e:
             logger.error(f"Image error: {e}")
             image_url = None
 
     safe_text = escape_md(truncate_to_sentence(text, 4096))
-    payload = {
-        'chat_id': CHANNEL_ID,
-        'text': safe_text,
-        'parse_mode': 'Markdown'
-    }
+    payload = {'chat_id': CHANNEL_ID, 'text': safe_text, 'parse_mode': 'Markdown'}
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
     if resp.status_code == 200:
         logger.info("✅ Текст опубликован")
         return True
     else:
-        logger.error(f"Text send error: {resp.text}")
+        logger.error(f"Text error: {resp.text}")
         return False
 
 def create_and_publish():
@@ -294,7 +222,7 @@ def create_and_publish():
     if not available:
         save_published([])
         available = TOPICS.copy()
-        logger.info("📂 Все темы использованы, история сброшена")
+        logger.info("📂 Все темы использованы, сброс")
     
     random.shuffle(available)
     chosen_topic = None
@@ -302,18 +230,18 @@ def create_and_publish():
     
     for topic in available:
         logger.info(f"🔍 Проверяем тему: {topic}")
-        img = search_wikimedia(topic)
+        img = search_pexels(topic)
         if img:
             chosen_topic = topic
             image_url = img
-            logger.info(f"✅ Для темы '{topic}' найдена картинка")
+            logger.info(f"✅ Для '{topic}' найдена картинка")
             break
         else:
-            logger.info(f"⏭️ Для темы '{topic}' картинка не найдена, пробуем следующую")
+            logger.info(f"⏭️ Для '{topic}' картинки нет, пробуем следующую")
     
     if not chosen_topic:
         chosen_topic = available[0]
-        logger.warning(f"⚠️ Ни для одной темы не найдена картинка, берём '{chosen_topic}' без картинки")
+        logger.warning(f"⚠️ Ни для одной темы нет картинки, берём '{chosen_topic}' без фото")
         image_url = None
     
     logger.info(f"📌 Генерируем историю для: {chosen_topic}")
@@ -324,7 +252,6 @@ def create_and_publish():
     
     header = "📐 **Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
-    
     story_cut = truncate_to_sentence(story, 800)
     full_text = header + story_cut + footer
     
@@ -335,7 +262,7 @@ def create_and_publish():
         logger.info(f"✅ Пост опубликован (тема: {chosen_topic})")
         return True
     else:
-        logger.error("❌ Не удалось опубликовать пост")
+        logger.error("❌ Ошибка публикации")
         return False
 
 def run_schedule():
