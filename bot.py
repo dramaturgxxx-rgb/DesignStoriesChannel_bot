@@ -20,15 +20,13 @@ MODEL = "deepseek/deepseek-v4-flash"
 TEST_MODE = True
 TEST_INTERVAL = 60
 
-# Создаём папку для данных, если её нет
+# Путь к файлу с использованными темами
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "data")
-os.makedirs(DATA_DIR, exist_ok=True)
-PUBLISHED_FILE = os.path.join(DATA_DIR, "published_design.json")
+PUBLISHED_FILE = os.path.join(BASE_DIR, "published_design.json")
 
 # =============================================
 
-# Уникальные темы
+# Уникальные темы (без дублей)
 TOPICS = [
     "логотип Apple",
     "логотип Nike",
@@ -55,6 +53,7 @@ TOPICS = [
 ]
 
 def load_published():
+    global PUBLISHED_FILE
     try:
         if os.path.exists(PUBLISHED_FILE):
             with open(PUBLISHED_FILE, "r") as f:
@@ -64,13 +63,20 @@ def load_published():
                 else:
                     return []
         else:
-            # Создаём пустой файл
             with open(PUBLISHED_FILE, "w") as f:
                 json.dump([], f)
             return []
     except Exception as e:
         logger.error(f"Ошибка загрузки published: {e}")
-        return []
+        # fallback на /tmp
+        PUBLISHED_FILE = "/tmp/published_design.json"
+        if os.path.exists(PUBLISHED_FILE):
+            with open(PUBLISHED_FILE, "r") as f:
+                return json.load(f)
+        else:
+            with open(PUBLISHED_FILE, "w") as f:
+                json.dump([], f)
+            return []
 
 def save_published(articles):
     try:
@@ -87,34 +93,20 @@ def escape_md(text):
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
-def get_category_and_keywords(query):
-    """Определяет категорию и ключевые слова для поиска картинок"""
-    if "шрифт" in query or "font" in query.lower():
-        return "Typography", ["font", "typeface", "typography"]
-    elif "стул" in query or "кресло" in query or "chair" in query.lower():
-        return "Furniture", ["chair", "furniture", "seat"]
-    elif "плакат" in query or "poster" in query.lower():
-        return "Posters", ["poster", "placard", "advertising"]
-    elif "логотип" in query or "logo" in query.lower():
-        return "Logos", ["logo", "emblem", "symbol", "mark"]
-    else:
-        return None, []
-
 def search_wikimedia(query):
-    """Ищет изображения с проверкой на соответствие типу"""
+    """Ищет изображения на Wikimedia Commons с мягкими фильтрами"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     eng_words = extract_english_words(query)
     if not eng_words:
         eng_words = [query]
     
-    category, type_keywords = get_category_and_keywords(query)
-    
-    # Формируем запросы
     queries = []
     base = ' '.join(eng_words)
-    if category:
-        queries.append(f'"{base}" incategory:"{category}"')
+    for cat in ['Logos', 'Posters', 'Design', 'Furniture', 'Typography']:
+        queries.append(f'"{base}" incategory:"{cat}"')
     queries.append(base)
+    if len(eng_words) > 1:
+        queries.append(eng_words[0])
     queries = list(dict.fromkeys(queries))
     
     for q in queries:
@@ -127,7 +119,7 @@ def search_wikimedia(query):
                 "list": "search",
                 "srsearch": q,
                 "srnamespace": 6,
-                "srlimit": 10,
+                "srlimit": 20,
                 "srwhat": "text"
             }
             response = requests.get(search_url, params=params, headers=headers, timeout=15)
@@ -140,11 +132,7 @@ def search_wikimedia(query):
             for result in data["query"]["search"]:
                 title = result["title"]
                 title_lower = title.lower()
-                # Проверяем, что в названии есть ключевые слова
                 if not any(word.lower() in title_lower for word in eng_words):
-                    continue
-                # Если есть категория, проверяем, что название содержит типовое слово
-                if type_keywords and not any(kw in title_lower for kw in type_keywords):
                     continue
                 
                 info_params = {
@@ -168,21 +156,11 @@ def search_wikimedia(query):
                     if desc:
                         desc_lower = desc.lower()
                         if any(word.lower() in desc_lower for word in eng_words):
-                            # Дополнительная проверка: если есть тип-ключевые слова, они должны быть в описании
-                            if type_keywords and any(kw in desc_lower for kw in type_keywords):
-                                logger.info(f"✅ Найдено релевантное изображение: {url}")
-                                return url
-                            elif not type_keywords:
-                                logger.info(f"✅ Найдено релевантное изображение: {url}")
-                                return url
+                            logger.info(f"✅ Найдено релевантное изображение: {url}")
+                            return url
                     else:
-                        # Если описания нет, но тип-ключевые слова есть в названии – берём
-                        if type_keywords and any(kw in title_lower for kw in type_keywords):
-                            logger.info(f"✅ Найдено изображение (без описания, но с ключевым словом): {url}")
-                            return url
-                        elif not type_keywords:
-                            logger.info(f"✅ Найдено изображение (без описания): {url}")
-                            return url
+                        logger.info(f"✅ Найдено изображение (без описания): {url}")
+                        return url
         except Exception as e:
             logger.error(f"Ошибка при поиске '{q}': {e}")
     
@@ -193,17 +171,16 @@ def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
 
 Важные требования:
-- Объём: ровно 700–800 символов.
+- Объём: ровно 700–800 символов (не больше!).
 - История должна быть законченной: вступление, основная часть, вывод или вопрос.
-- Заголовок — интригующий, выдели его **жирным** в самом начале текста.
+- Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
-- Никаких упоминаний политики, войн, нацизма.
-- Не используй обратные слеши (\) или экранирование.
-- Не добавляй лишних заголовков, подзаголовков, номеров или символов типа #, @, ~.
+- Никаких упоминаний политики, войн, нацизма, фюреров, свастик.
+- Не используй обратные слеши (\\) или экранирование.
 
 Тема: {topic}
 
-Напиши только историю (без дополнительных вступлений):"""
+Напиши историю (без лишних вступлений):"""
     try:
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
@@ -218,23 +195,10 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            # Удаляем лишние вводные фразы
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
-            # Удаляем все виды слешей
             story = re.sub(r'\\+', '', story)
-            # Удаляем случайные символы #, @, ~, если они не в словах
-            story = re.sub(r'(?<!\w)[#@~](?!\w)', '', story)
-            # Удаляем лишние строки с "Subtraction Disturbance" и подобными
-            lines = story.split('\n')
-            clean_lines = []
-            for line in lines:
-                # Если строка содержит только небуквенные символы или короткие наборы, пропускаем
-                if re.match(r'^[\W_]+$', line) and len(line) > 1:
-                    continue
-                if re.match(r'^[#@~]+\s*[A-Za-z]', line):
-                    continue
-                clean_lines.append(line)
-            story = '\n'.join(clean_lines)
+            story = re.sub(r'\(', '(', story)
+            story = re.sub(r'\)', ')', story)
             return story
         else:
             logger.error(f"Polza error: {response.status_code}")
@@ -326,7 +290,6 @@ def create_and_publish():
     logger.info("🚀 Генерация нового поста")
     
     published = load_published()
-    logger.info(f"Загружено использованных тем: {len(published)}")
     available = [t for t in TOPICS if t not in published]
     if not available:
         save_published([])
