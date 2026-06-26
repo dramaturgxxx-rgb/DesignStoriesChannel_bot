@@ -153,51 +153,82 @@ def search_duckduckgo_safe(query):
         logger.error(f"DuckDuckGo error: {e}")
         return None
 
-def search_image(topic, story):
-    """Сначала ищем по заголовку истории, если не нашлось – по теме"""
+def search_image(topic):
+    """Поиск по теме с умным формированием запросов"""
     logger.info(f"🔍 Поиск картинки для: {topic}")
 
-    # Извлекаем заголовок из истории (первая строка с **)
-    title_match = re.search(r'\*\*(.+?)\*\*', story)
-    if title_match:
-        title = title_match.group(1).strip()
-        logger.info(f"📌 Заголовок: {title}")
-        # Пробуем поискать по заголовку (удаляем лишние слова)
-        query = title
-        # Если заголовок длинный, берём первые 5 слов
-        words = query.split()
-        if len(words) > 6:
-            query = ' '.join(words[:6])
-        url = search_duckduckgo_safe(query)
-        if url:
-            return url
-        # Пробуем заголовок + "design" или "vintage"
-        url = search_duckduckgo_safe(query + " design")
-        if url:
-            return url
-        url = search_duckduckgo_safe(query + " vintage")
-        if url:
-            return url
+    words = topic.split()
+    brand = None
+    obj = None
+    style = None
 
-    # Если не нашлось – поиск по теме
-    logger.info("🔄 Заголовок не дал результата, ищем по теме")
-    queries = [topic]
-    if "плакат" in topic:
-        queries.append(topic.replace("плакат", "poster"))
-    if "логотип" in topic:
-        queries.append(topic.replace("логотип", "logo"))
-    if "шрифт" in topic:
-        queries.append(topic.replace("шрифт", "font"))
-    if "вывеска" in topic:
-        queries.append(topic.replace("вывеска", "sign"))
-    if not topic.endswith("design"):
-        queries.append(topic + " design")
+    for b in BRANDS:
+        if b.lower() in words:
+            brand = b
+            break
+    for o in OBJECTS:
+        if o in words:
+            obj = o
+            break
+    for s in STYLES:
+        if s in words:
+            style = s
+            break
+
+    queries = []
+
+    if brand and obj:
+        eng_obj = {
+            "логотип": "logo",
+            "плакат": "poster",
+            "шрифт": "font",
+            "вывеска": "sign",
+            "реклама": "advertisement",
+            "упаковка": "packaging",
+            "этикетка": "label",
+            "афиша": "poster",
+            "графика": "graphic",
+            "типографика": "typography",
+            "интерьер": "interior",
+            "мебель": "furniture",
+            "календарь": "calendar",
+            "открытка": "postcard",
+            "меню": "menu",
+            "билет": "ticket",
+            "журнал": "magazine",
+            "газета": "newspaper",
+            "книга": "book",
+            "конверт": "envelope"
+        }.get(obj, obj)
+
+        queries.append(f'"{brand}" "{eng_obj}" vintage')
+        queries.append(f'"{brand}" "{eng_obj}" retro')
+        queries.append(f'"{brand}" "{eng_obj}" design')
+        queries.append(f'"{brand}" {eng_obj} vintage')
+        queries.append(f'"{brand}" retro {eng_obj}')
+
+    if brand:
+        queries.append(f'"{brand}" design')
+        queries.append(f'"{brand}" vintage')
+        queries.append(f'"{brand}" retro')
+
+    if obj:
+        queries.append(f'"{obj}" design')
+        queries.append(f'"{obj}" vintage')
+        queries.append(f'"{obj}" retro')
+
+    if style and obj:
+        queries.append(f'"{style}" "{obj}"')
+        queries.append(f'"{style}" {obj} design')
+
+    queries.append(topic)
     queries = list(dict.fromkeys(queries))
 
     for q in queries:
         url = search_duckduckgo_safe(q)
         if url:
             return url
+
     return None
 
 def download_image(url):
@@ -305,7 +336,7 @@ def create_and_publish():
     if not story:
         logger.error("❌ История не сгенерирована")
         return False
-    image_url = search_image(topic, story)
+    image_url = search_image(topic)
     if not image_url:
         logger.info("🔄 Пробуем другую тему")
         published.append(topic)
@@ -316,7 +347,7 @@ def create_and_publish():
         if not story:
             logger.error("❌ История не сгенерирована")
             return False
-        image_url = search_image(topic, story)
+        image_url = search_image(topic)
         if image_url:
             logger.info(f"✅ Найдена картинка")
         else:
