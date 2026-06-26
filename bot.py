@@ -9,7 +9,6 @@ import sys
 import subprocess
 from datetime import datetime
 
-# Автоустановка ddgs
 try:
     from ddgs import DDGS
 except ImportError:
@@ -36,31 +35,31 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# БЕСКОНЕЧНЫЙ ГЕНЕРАТОР ТЕМ
+# ТОЛЬКО ГРАФИЧЕСКИЙ ДИЗАЙН – НИКАКОЙ ОДЕЖДЫ
 ERAS = [
     "1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х",
-    "1980-х", "1990-х", "начало XX века", "середина XX века"
+    "1980-х", "1990-х"
 ]
 STYLES = [
     "конструктивизм", "ар-деко", "модерн", "баухаус", "поп-арт",
     "минимализм", "функционализм", "скандинавский", "винтажный",
-    "ретро", "индустриальный", "органический"
+    "ретро", "индустриальный", "органический", "модернизм"
 ]
 OBJECTS = [
     "логотип", "вывеска", "плакат", "реклама", "упаковка",
-    "этикетка", "афиша", "интерьер", "кафе", "витрина", "стул",
-    "кресло", "светильник", "лампа", "здание", "архитектура",
-    "автомобиль", "часы", "телефон", "радиоприемник", "фотоаппарат",
-    "телевизор", "журнал", "газета", "игрушка", "костюм", "платье"
+    "этикетка", "афиша", "шрифт", "типографика", "журнал",
+    "газета", "книга", "марка", "открытка", "календарь",
+    "меню", "билет", "конверт", "графика"
 ]
 BRANDS = [
     "Coca-Cola", "Apple", "Nike", "Adidas", "Puma", "Volkswagen",
     "Mercedes-Benz", "Chanel", "IBM", "BMW", "Ford", "Rolex", "Kodak",
-    "Disney", "NASA", "MTV", "Starbucks", "Levi's", "Harley-Davidson"
+    "Disney", "NASA", "MTV", "Starbucks", "Levi's", "Harley-Davidson",
+    "Gucci", "Prada", "Versace", "Dior", "Louis Vuitton",
+    "Helvetica", "Futura", "Times New Roman"
 ]
 
 def generate_topic():
-    """Генерирует уникальную тему"""
     era = random.choice(ERAS)
     style = random.choice(STYLES)
     obj = random.choice(OBJECTS)
@@ -77,14 +76,12 @@ def generate_topic():
     return ' '.join(topic.split()).lower()
 
 def get_unique_topic(published):
-    """Генерирует тему, которой нет в списке published"""
     attempts = 0
     while attempts < 500:
         topic = generate_topic()
         if topic not in published:
             return topic
         attempts += 1
-    # Если все комбинации исчерпаны (маловероятно) – сбрасываем историю
     logger.info("📂 Все комбинации исчерпаны, сброс")
     save_published([])
     return generate_topic()
@@ -131,59 +128,61 @@ def search_duckduckgo(query):
         logger.error(f"DuckDuckGo error: {e}")
         return None
 
+def extract_keywords_from_topic(topic):
+    words = topic.split()
+    keywords = []
+    for w in words:
+        if w not in ['ретро', 'винтажный', 'старый', 'дизайн'] and len(w) > 2:
+            keywords.append(w)
+    return keywords
+
 def search_image(topic, story):
-    """
-    Формирует точный запрос для поиска картинки на основе темы и истории.
-    Извлекает ключевые слова: бренды, годы, стили, объекты.
-    """
-    # Из темы берём всё, что есть
-    keywords = topic.split()
-    # Добавляем уточнения в зависимости от объекта
+    keywords = extract_keywords_from_topic(topic)
+    # Уточнения для графических объектов
     if any(w in topic for w in ['логотип', 'logo']):
         keywords.append('logo')
-        keywords.append('vintage logo')
     if any(w in topic for w in ['плакат', 'постер', 'poster']):
         keywords.append('poster')
-        keywords.append('vintage poster')
-    if any(w in topic for w in ['стул', 'кресло', 'chair']):
-        keywords.append('chair')
-        keywords.append('vintage chair')
     if any(w in topic for w in ['шрифт', 'font']):
         keywords.append('font')
         keywords.append('typography')
     if any(w in topic for w in ['вывеска', 'sign']):
         keywords.append('sign')
-        keywords.append('vintage sign')
-    if any(w in topic for w in ['автомобиль', 'car']):
-        keywords.append('car')
-        keywords.append('vintage car')
     if any(w in topic for w in ['этикетка', 'label']):
         keywords.append('label')
-        keywords.append('vintage label')
     if any(w in topic for w in ['реклама', 'advertising']):
         keywords.append('advertising')
-        keywords.append('vintage advertising')
-    if any(w in topic for w in ['костюм', 'платье']):
-        keywords.append('vintage fashion')
-        keywords.append('retro clothing')
-    # Добавляем общие уточнения
+    if any(w in topic for w in ['упаковка', 'packaging']):
+        keywords.append('packaging')
+    if any(w in topic for w in ['журнал', 'magazine']):
+        keywords.append('magazine')
+    if any(w in topic for w in ['газета', 'newspaper']):
+        keywords.append('newspaper')
+    if any(w in topic for w in ['книга', 'book']):
+        keywords.append('book')
+    if any(w in topic for w in ['марка', 'stamp']):
+        keywords.append('stamp')
+    if any(w in topic for w in ['открытка', 'postcard']):
+        keywords.append('postcard')
     keywords.append('design')
-    keywords.append('retro')
+    keywords.append('graphic')
 
-    # Формируем несколько запросов и пробуем их по порядку
+    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', story)
+    if year_match:
+        keywords.append(year_match.group(1))
+
     queries = []
-    # Сначала точный запрос с брендом, если он есть
     for brand in BRANDS:
         if brand.lower() in topic:
             queries.append(f'"{brand}" {" ".join(keywords[:3])} vintage')
             queries.append(f'"{brand}" {" ".join(keywords[:2])} retro')
             break
-    # Общий запрос из темы
     queries.append(' '.join(keywords[:5]))
-    # Запрос только из темы
-    queries.append(topic)
+    clean_keywords = [w for w in keywords if w not in ['design', 'graphic', 'retro', 'vintage', 'ретро', 'винтажный']]
+    if clean_keywords:
+        queries.append(' '.join(clean_keywords[:4]))
 
-    queries = list(dict.fromkeys(queries))  # убираем дубли
+    queries = list(dict.fromkeys(queries))
 
     for q in queries:
         url = search_duckduckgo(q)
@@ -212,7 +211,7 @@ def download_image(url):
     return None
 
 def generate_story(topic):
-    prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
+    prompt = f"""Ты — историк графического дизайна. Напиши короткую, интересную историю на тему: {topic}.
 
 Важные требования:
 - Объём: ровно 700–800 символов.
@@ -232,8 +231,7 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            # Дополнительная очистка от "я" на случай, если модель всё равно использует
-            story = re.sub(r'\b(я|мне|мой|моя|моё|мои|мы|нас|наш|наша)\b', '', story, flags=re.IGNORECASE)
+            story = re.sub(r'\b(я|мне|мой|моя|моё|мои|мы|нас|наш|наша|наше)\b', '', story, flags=re.IGNORECASE)
             story = clean_text(story)
             return story
         else:
@@ -292,26 +290,20 @@ def create_and_publish():
     logger.info("🚀 Новый пост")
     published = load_published()
 
-    # Генерируем уникальную тему
     topic = get_unique_topic(published)
     logger.info(f"📌 Тема: {topic}")
 
-    # Сначала генерируем историю
     story = generate_story(topic)
     if not story:
         logger.error("❌ История не сгенерирована")
         return False
 
-    # Теперь ищем картинку, используя тему и историю для точных ключевых слов
     image_url = search_image(topic, story)
 
-    # Если не нашли картинку – пробуем альтернативную тему (перегенерируем)
     if not image_url:
         logger.info("🔄 Картинка не найдена, пробуем другую тему")
-        # Сохраняем текущую тему как использованную, чтобы не повторять
         published.append(topic)
         save_published(published)
-        # Генерируем новую тему и историю
         topic = get_unique_topic(published)
         logger.info(f"📌 Новая тема: {topic}")
         story = generate_story(topic)
@@ -324,7 +316,7 @@ def create_and_publish():
         else:
             logger.warning("⚠️ Без картинки")
 
-    header = "📐 **Истории про дизайн**\n\n"
+    header = "📐 **Истории про графический дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     story_cut = truncate_to_sentence(story, 800)
     full_text = clean_text(header + story_cut + footer)
@@ -363,5 +355,5 @@ def run_schedule():
             create_and_publish()
 
 if __name__ == "__main__":
-    logger.info("📐 ИСТОРИИ ПРО ДИЗАЙН — ЗАПУСК")
+    logger.info("📐 ИСТОРИИ ПРО ГРАФИЧЕСКИЙ ДИЗАЙН — ЗАПУСК")
     run_schedule()
