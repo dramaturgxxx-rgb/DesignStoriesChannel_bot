@@ -17,7 +17,6 @@ POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
 
 MODEL = "deepseek/deepseek-v4-flash"
 
-# Режим работы: True — пост раз в минуту, False — 3 поста в день
 TEST_MODE = True
 TEST_INTERVAL = 60
 
@@ -62,12 +61,10 @@ def save_published(articles):
         json.dump(articles[-100:], f)
 
 def escape_md(text):
-    """Экранирует спецсимволы Markdown, чтобы они не ломали формат"""
     chars = r'_*[]()~`>#+-=|{}.!'
     return ''.join('\\' + c if c in chars else c for c in text)
 
 def search_wikimedia(query):
-    """Улучшенный поиск картинок: несколько запросов, фильтр по расширениям"""
     queries = [
         query,
         query + " design",
@@ -118,18 +115,19 @@ def search_wikimedia(query):
     return None
 
 def generate_story(topic):
-    prompt = f"""Ты — историк дизайна. Напиши короткую историю (700–800 символов) на тему: {topic}.
+    # НОВЫЙ ПРОМПТ — с явным указанием длины и завершённости
+    prompt = f"""Ты — историк дизайна. Напиши короткую историю на тему: {topic}.
 
-Формат:
-- Начинай с интригующего заголовка.
-- Расскажи историю создания, ключевые факты, интересные детали.
-- Заверши вопросом к читателю.
-
-Пиши живым, разговорным языком, без сложных терминов.
+Важные требования:
+- Объём: ровно 700–800 символов (не больше!).
+- История должна быть законченной: иметь вступление, основную часть и вывод (или вопрос к читателю).
+- Не обрывай повествование на полуслове — заверши мысль.
+- Заголовок — интригующий.
+- Пиши живым, разговорным языком.
 
 Тема: {topic}
 
-История:"""
+Теперь напиши законченную историю:"""
     try:
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
@@ -138,7 +136,7 @@ def generate_story(topic):
                 "model": MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.9,
-                "max_tokens": 900  # оставляем с запасом, чтобы уложиться в 800 символов
+                "max_tokens": 1100  # запас, чтобы модель могла завершить мысль
             },
             timeout=90
         )
@@ -156,18 +154,19 @@ def generate_story(topic):
 
 def truncate_to_sentence(text, max_len):
     """
-    Обрезает текст до max_len символов, заканчивая на точке/вопросе/восклицании.
-    Если разделитель найден – обрезает по нему, иначе обрезает по пробелу и ставит многоточие.
+    Обрезает до max_len, но старается сохранить завершённое предложение.
+    Если последнее предложение явно незавершённое (например, заканчивается на двоеточие или запятую),
+    добавляет завершающую фразу.
     """
     if len(text) <= max_len:
         return text
     truncated = text[:max_len]
-    # Ищем последний разделитель предложений в пределах max_len
+    # Ищем последний разделитель предложений
     last_punct = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
-    if last_punct > max_len * 0.6:  # чтобы не обрезать слишком коротко
+    if last_punct > max_len * 0.6:
         return truncated[:last_punct+1]
     else:
-        # Если нет разделителя – обрезаем по последнему пробелу и ставим многоточие
+        # Если нет точки, обрезаем по пробелу и ставим многоточие
         last_space = truncated.rfind(' ')
         if last_space > max_len * 0.6:
             return truncated[:last_space] + '...'
@@ -175,12 +174,11 @@ def truncate_to_sentence(text, max_len):
             return truncated + '...'
 
 def publish_to_channel(text, image_url):
-    """Отправляет с картинкой (если есть), иначе просто текст"""
     if image_url:
         try:
             img_data = requests.get(image_url, timeout=30).content
             files = {'photo': ('image.jpg', img_data)}
-            caption = text[:1024]  # подпись к фото ограничена 1024 символами
+            caption = text[:1024]
             data = {
                 'chat_id': CHANNEL_ID,
                 'caption': caption,
@@ -192,14 +190,12 @@ def publish_to_channel(text, image_url):
                 return True
             else:
                 logger.error(f"Telegram error (photo): {resp.status_code} - {resp.text[:200]}")
-                # если фото не отправилось – пробуем текст
                 image_url = None
         except Exception as e:
             logger.error(f"Photo send error: {e}")
             image_url = None
 
-    # Отправка только текста (если картинки нет или она не прошла)
-    safe_text = escape_md(truncate_to_sentence(text, 4096))  # лимит Telegram 4096
+    safe_text = escape_md(truncate_to_sentence(text, 4096))
     payload = {
         'chat_id': CHANNEL_ID,
         'text': safe_text,
@@ -225,22 +221,19 @@ def create_and_publish():
     topic = random.choice(available)
     logger.info(f"📌 Тема: {topic}")
 
-    # Поиск картинки
     image_url = search_wikimedia(topic)
     if not image_url and len(topic.split()) > 1:
         image_url = search_wikimedia(topic.split()[0])
 
-    # Генерация истории
     story = generate_story(topic)
     if not story:
         logger.error("❌ История не сгенерирована")
         return False
 
-    # Собираем финальный текст: заголовок + история (обрезанная до 800 символов) + футер
     header = "📐 **Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     
-    # Обрезаем историю до 800 символов с сохранением целого предложения
+    # Теперь история уже должна быть примерно нужной длины, но на всякий случай обрежем
     story_cut = truncate_to_sentence(story, 800)
     full_text = header + story_cut + footer
 
