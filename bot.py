@@ -69,7 +69,7 @@ def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def search_wikimedia(query):
-    """Улучшенный поиск на Wikimedia с проверкой релевантности"""
+    """Ищем только логотипы/эмблемы/символы"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     eng_words = extract_english_words(query)
     if not eng_words:
@@ -107,6 +107,9 @@ def search_wikimedia(query):
             for result in data["query"]["search"]:
                 title = result["title"]
                 title_lower = title.lower()
+                # Проверяем, что это логотип или эмблема
+                if not any(word in title_lower for word in ['logo', 'emblem', 'symbol', 'mark', 'sign']):
+                    continue
                 if not any(word.lower() in title_lower for word in eng_words):
                     continue
                 
@@ -131,15 +134,16 @@ def search_wikimedia(query):
                     if desc:
                         desc_lower = desc.lower()
                         if any(word.lower() in desc_lower for word in eng_words):
-                            logger.info(f"✅ Найдено релевантное изображение: {url}")
+                            logger.info(f"✅ Найдено релевантное изображение (логотип): {url}")
                             return url
                     else:
-                        logger.info(f"✅ Найдено изображение (без описания): {url}")
+                        # Если описания нет, но заголовок содержит logo/emblem – берём
+                        logger.info(f"✅ Найдено изображение-логотип (без описания): {url}")
                         return url
         except Exception as e:
             logger.error(f"Ошибка при поиске '{q}': {e}")
     
-    logger.warning("❌ Подходящее изображение не найдено")
+    logger.warning("❌ Подходящее изображение-логотип не найдено")
     return None
 
 def generate_story(topic):
@@ -203,6 +207,9 @@ def truncate_to_sentence(text, max_len):
             return ensure_complete(truncated + '...')
 
 def publish_to_channel(text, image_url):
+    # Удаляем все обратные слеши из текста (они не нужны)
+    text = text.replace('\\', '')
+    
     if image_url:
         try:
             logger.info(f"📥 Скачиваем JPG: {image_url}")
@@ -215,32 +222,41 @@ def publish_to_channel(text, image_url):
                 img_data = img_response.content
                 file_size = len(img_data)
                 logger.info(f"Размер файла: {file_size} байт")
-                if file_size > 5 * 1024 * 1024:
-                    logger.warning(f"Изображение слишком большое ({file_size} байт), пропускаем")
+                if file_size > 20 * 1024 * 1024:
+                    logger.warning(f"Изображение слишком большое ({file_size} байт, лимит 20 МБ), пропускаем")
                     image_url = None
                 else:
-                    files = {'photo': ('image.jpg', img_data)}
-                    # Для caption используем Markdown (без дополнительных тегов)
-                    caption = text[:1024]
-                    # Экранируем caption для Markdown
-                    caption = escape_md(caption)
-                    data = {
-                        'chat_id': CHANNEL_ID,
-                        'caption': caption,
-                        'parse_mode': 'Markdown'
-                    }
-                    resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
+                    caption = escape_md(text[:1024])
+                    # Если файл больше 5 МБ, отправляем как документ (лимит 50 МБ)
+                    if file_size > 5 * 1024 * 1024:
+                        logger.info("Файл >5 МБ, отправляем как документ")
+                        files = {'document': ('image.jpg', img_data)}
+                        data = {
+                            'chat_id': CHANNEL_ID,
+                            'caption': caption,
+                            'parse_mode': 'Markdown'
+                        }
+                        resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendDocument", files=files, data=data, timeout=30)
+                    else:
+                        files = {'photo': ('image.jpg', img_data)}
+                        data = {
+                            'chat_id': CHANNEL_ID,
+                            'caption': caption,
+                            'parse_mode': 'Markdown'
+                        }
+                        resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
+                    
                     if resp.status_code == 200:
                         logger.info("✅ Пост с картинкой опубликован (Markdown)")
                         return True
                     else:
-                        logger.error(f"Telegram photo error: {resp.status_code} - {resp.text[:200]}")
+                        logger.error(f"Telegram image error: {resp.status_code} - {resp.text[:200]}")
                         image_url = None
         except Exception as e:
-            logger.error(f"Photo error: {e}")
+            logger.error(f"Image error: {e}")
             image_url = None
 
-    # Отправка только текста (с Markdown)
+    # Отправка только текста
     safe_text = escape_md(truncate_to_sentence(text, 4096))
     payload = {
         'chat_id': CHANNEL_ID,
@@ -292,7 +308,6 @@ def create_and_publish():
         logger.error("❌ История не сгенерирована")
         return False
     
-    # Здесь мы добавляем заголовок жирным через Markdown
     header = "📐 **Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     
