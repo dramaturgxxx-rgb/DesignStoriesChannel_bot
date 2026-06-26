@@ -8,7 +8,10 @@ import re
 import sys
 import subprocess
 from datetime import datetime
+from urllib.parse import quote
 
+# =============================================
+# РЕЗЕРВ: DuckDuckGo (если Яндекс не сработает)
 try:
     from ddgs import DDGS
 except ImportError:
@@ -27,6 +30,13 @@ CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
 MODEL = "deepseek/deepseek-v4-flash"
 
+# ===== YANDEX API КЛЮЧ (читаем из переменной окружения) =====
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
+if not YANDEX_API_KEY:
+    logger.error("❌ Переменная YANDEX_API_KEY не задана в окружении!")
+    sys.exit(1)
+# ============================================================
+
 TEST_MODE = True
 TEST_INTERVAL = 60
 
@@ -35,7 +45,7 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# NSFW ФИЛЬТР
+# NSFW ФИЛЬТР (на всякий случай)
 NSFW_WORDS = [
     'porn', 'porno', 'xxx', 'sex', 'nude', 'naked', 'penis', 'vagina',
     'boobs', 'breast', 'ass', 'butt', 'orgy', 'bdsm', 'kink', 'fetish',
@@ -82,8 +92,7 @@ def generate_topic():
         lambda: f"{random.choice(OBJECTS)} {random.choice(BRANDS)}",
         lambda: f"{random.choice(DESIGNERS)} {random.choice(STYLES)}"
     ]
-    topic = random.choice(templates)()
-    return topic.lower()
+    return random.choice(templates)().lower()
 
 def get_unique_topic(published):
     attempts = 0
@@ -131,30 +140,59 @@ def is_nsfw(text):
             return True
     return False
 
+# ========== YANDEX SEARCH API ==========
+def search_yandex_images(query):
+    """Поиск изображений через Yandex Search API"""
+    try:
+        url = "https://search.yandex.ru/search/"
+        params = {
+            "apikey": YANDEX_API_KEY,
+            "query": query,
+            "type": "image",
+            "max": 3
+        }
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code != 200:
+            logger.warning(f"Yandex API ошибка: {response.status_code}")
+            return None
+
+        data = response.json()
+        if not data.get("results"):
+            return None
+
+        for item in data["results"]:
+            image_url = item.get("url")
+            if image_url and not is_nsfw(image_url):
+                title = item.get("title", "")
+                if not is_nsfw(title):
+                    logger.info(f"✅ Яндекс: {image_url}")
+                    return image_url
+        return None
+    except Exception as e:
+        logger.error(f"Yandex API exception: {e}")
+        return None
+
+# ========== DUCKDUCKGO (РЕЗЕРВ) ==========
 def search_duckduckgo_safe(query):
     time.sleep(1.5)
     try:
-        logger.info(f"🔍 DuckDuckGo: {query}")
+        logger.info(f"🔍 DuckDuckGo (резерв): {query}")
         with DDGS() as ddgs:
             results = list(ddgs.images(query, max_results=5))
             if not results:
                 return None
-
             keywords = set(query.lower().split())
-
             for img in results:
                 title = img.get('title', '')
                 image_url = img.get('image', '')
-
                 if is_nsfw(title) or is_nsfw(image_url):
                     continue
-
                 title_words = set(title.lower().split())
                 if keywords & title_words:
-                    logger.info(f"✅ Релевантно: {image_url}")
+                    logger.info(f"✅ DDG: {image_url}")
                     return image_url
                 if not is_nsfw(title):
-                    logger.info(f"✅ Безопасно: {image_url}")
+                    logger.info(f"✅ DDG (безопасно): {image_url}")
                     return image_url
             return None
     except Exception as e:
@@ -162,6 +200,8 @@ def search_duckduckgo_safe(query):
         return None
 
 def search_image(topic):
+    """Сначала Яндекс, если не нашёл – DuckDuckGo"""
+    logger.info(f"🔍 Поиск картинки для: {topic}")
     queries = [topic]
     if "плакат" in topic:
         queries.append(topic.replace("плакат", "poster"))
@@ -176,6 +216,9 @@ def search_image(topic):
     queries = list(dict.fromkeys(queries))
 
     for q in queries:
+        url = search_yandex_images(q)
+        if url:
+            return url
         url = search_duckduckgo_safe(q)
         if url:
             return url
@@ -302,7 +345,7 @@ def create_and_publish():
             logger.info(f"✅ Найдена картинка")
         else:
             logger.warning("⚠️ Без картинки")
-    header = "📐 **Истории про дизайн**\n\n"   # <— иконка вернулась!
+    header = "📐 **Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     story_cut = truncate_to_sentence(story, 800)
     full_text = clean_text(header + story_cut + footer)
