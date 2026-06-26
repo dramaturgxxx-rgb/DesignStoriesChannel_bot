@@ -35,7 +35,7 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# NSFW СТОП-СЛОВА (расширенный список)
+# NSFW СТОП-СЛОВА
 NSFW_WORDS = [
     'porn', 'porno', 'xxx', 'sex', 'nude', 'naked', 'penis', 'vagina',
     'boobs', 'breast', 'ass', 'butt', 'orgy', 'bdsm', 'kink', 'fetish',
@@ -44,18 +44,34 @@ NSFW_WORDS = [
     'pussy', 'clit', 'anal', 'oral', 'blowjob', 'handjob', 'suck'
 ]
 
-ERAS = ["1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х", "1980-х", "1990-х"]
-STYLES = ["конструктивизм", "ар-деко", "модерн", "баухаус", "поп-арт", "минимализм", "функционализм", "скандинавский", "винтажный", "ретро", "индустриальный", "модернизм"]
-OBJECTS = ["логотип", "вывеска", "плакат", "реклама", "упаковка", "этикетка", "афиша", "шрифт", "типографика", "журнал", "газета", "книга", "марка", "открытка", "календарь", "меню", "билет", "конверт", "графика"]
-BRANDS = ["Coca-Cola", "Apple", "Nike", "Adidas", "Volkswagen", "Mercedes-Benz", "Chanel", "IBM", "BMW", "Ford", "Rolex", "Kodak", "Disney", "NASA", "MTV", "Starbucks", "Helvetica", "Futura", "Puma", "Levi's"]
+# УПРОЩЁННЫЕ СПИСКИ (без эпох и стилей, только объекты и бренды)
+OBJECTS = [
+    "логотип", "вывеска", "плакат", "реклама", "упаковка",
+    "этикетка", "афиша", "шрифт", "типографика", "журнал",
+    "газета", "книга", "марка", "открытка", "календарь",
+    "меню", "билет", "конверт", "графика"
+]
+BRANDS = [
+    "Coca-Cola", "Apple", "Nike", "Adidas", "Volkswagen",
+    "Mercedes-Benz", "Chanel", "IBM", "BMW", "Ford", "Rolex",
+    "Kodak", "Disney", "NASA", "MTV", "Starbucks", "Helvetica",
+    "Futura", "Puma", "Levi's", "Harley-Davidson"
+]
+STYLES = [
+    "конструктивизм", "ар-деко", "модерн", "баухаус",
+    "поп-арт", "минимализм", "функционализм", "скандинавский"
+]
 
 def generate_topic():
-    era = random.choice(ERAS)
-    style = random.choice(STYLES)
-    obj = random.choice(OBJECTS)
-    brand = random.choice(BRANDS)
-    templates = [f"{brand} {obj} {era}", f"{style} {obj} {brand}", f"{brand} {obj} ретро", f"{era} {brand} {obj}", f"{style} ретро {obj}", f"{brand} винтажный {obj}"]
-    return ' '.join(random.choice(templates).split()).lower()
+    """Генерирует короткую тему (только бренд + объект или стиль + объект)"""
+    if random.random() < 0.7:  # 70% – бренд + объект
+        brand = random.choice(BRANDS)
+        obj = random.choice(OBJECTS)
+        return f"{brand} {obj}".lower()
+    else:  # 30% – стиль + объект
+        style = random.choice(STYLES)
+        obj = random.choice(OBJECTS)
+        return f"{style} {obj}".lower()
 
 def get_unique_topic(published):
     attempts = 0
@@ -95,7 +111,6 @@ def clean_text(text):
     return text.replace('\\', '')
 
 def is_nsfw(text):
-    """Проверяет, содержит ли текст NSFW-стоп-слова"""
     if not text:
         return False
     text_lower = text.lower()
@@ -105,12 +120,12 @@ def is_nsfw(text):
     return False
 
 def search_duckduckgo_safe(query):
-    """Поиск на DuckDuckGo с фильтрацией NSFW и проверкой релевантности"""
-    time.sleep(2)
+    """Поиск с фильтрацией NSFW и проверкой релевантности"""
+    time.sleep(1.5)  # небольшая задержка
     try:
         logger.info(f"🔍 DuckDuckGo: {query}")
         with DDGS() as ddgs:
-            results = list(ddgs.images(query, max_results=10))
+            results = list(ddgs.images(query, max_results=5))
             if not results:
                 return None
 
@@ -120,53 +135,76 @@ def search_duckduckgo_safe(query):
                 title = img.get('title', '')
                 image_url = img.get('image', '')
 
-                # Проверка на NSFW
                 if is_nsfw(title) or is_nsfw(image_url):
-                    logger.warning(f"⛔ NSFW контент пропущен: {title}")
                     continue
 
-                # Проверка релевантности: заголовок должен содержать хотя бы одно слово из запроса
+                # Проверяем, что в заголовке есть хотя бы одно слово из запроса
                 title_words = set(title.lower().split())
                 if keywords & title_words:
-                    logger.info(f"✅ Найдено (релевантно): {image_url}")
+                    logger.info(f"✅ Релевантно: {image_url}")
                     return image_url
-                # Если не нашли по ключевым словам, но картинка безопасна и релевантна по смыслу – берём
-                # Но для безопасности проверяем, что в заголовке нет NSFW
+                # Если нет точного совпадения, но картинка безопасна и выглядит подходящей – берём
                 if not is_nsfw(title):
-                    logger.info(f"✅ Найдено (безопасно): {image_url}")
+                    logger.info(f"✅ Безопасно: {image_url}")
                     return image_url
-
-            # Если ничего не подошло – возвращаем None
             return None
     except Exception as e:
         logger.error(f"DuckDuckGo error: {e}")
         return None
 
-def search_image(topic, story):
-    """Формирует точные запросы и ищет через DuckDuckGo с фильтрацией"""
-    keywords = topic.split()
-    clean_keywords = [w for w in keywords if w not in ['ретро', 'винтажный', 'старый', 'дизайн']]
+def search_image(topic):
+    """Формирует несколько запросов для одной темы (англ. и рус.)"""
+    # Определяем, есть ли в теме бренд
     brand = None
     for b in BRANDS:
         if b.lower() in topic:
             brand = b
             break
 
+    # Извлекаем объект (логотип, плакат и т.д.)
+    obj = None
+    for o in OBJECTS:
+        if o in topic:
+            obj = o
+            break
+
+    # Базовые запросы
     queries = []
-    # Самый точный запрос: бренд + объект + эпоха
+
+    # 1. Если есть бренд и объект – самый точный запрос
+    if brand and obj:
+        queries.append(f'"{brand}" "{obj}" vintage')
+        queries.append(f'"{brand}" "{obj}" retro')
+        queries.append(f'"{brand}" "{obj}" design')
+        # Английская версия для популярных объектов
+        eng_obj_map = {
+            "логотип": "logo",
+            "плакат": "poster",
+            "вывеска": "sign",
+            "шрифт": "font",
+            "типографика": "typography",
+            "журнал": "magazine",
+            "газета": "newspaper",
+            "этикетка": "label",
+            "реклама": "advertisement",
+            "упаковка": "packaging"
+        }
+        if obj in eng_obj_map:
+            eng_obj = eng_obj_map[obj]
+            queries.append(f'"{brand}" "{eng_obj}" vintage')
+            queries.append(f'"{brand}" "{eng_obj}" retro')
+    # 2. Только бренд + общие слова
     if brand:
-        for obj in ['логотип', 'плакат', 'вывеска', 'этикетка', 'шрифт', 'журнал']:
-            if obj in topic:
-                queries.append(f'"{brand}" "{obj}" vintage design')
-                queries.append(f'"{brand}" "{obj}" retro')
-                break
-        queries.append(f'"{brand}" graphic design')
-        queries.append(f'"{brand}" vintage')
-    # Запрос из всех ключевых слов
-    if clean_keywords:
-        queries.append(' '.join(clean_keywords[:4]) + ' design')
+        queries.append(f'"{brand}" vintage design')
+        queries.append(f'"{brand}" retro graphic')
+    # 3. Только объект + стиль
+    if obj:
+        queries.append(f'"{obj}" vintage design')
+        queries.append(f'"{obj}" retro')
+    # 4. Оригинальная тема
     queries.append(topic)
 
+    # Убираем дубли
     queries = list(dict.fromkeys(queries))
 
     for q in queries:
@@ -279,7 +317,7 @@ def create_and_publish():
     if not story:
         logger.error("❌ История не сгенерирована")
         return False
-    image_url = search_image(topic, story)
+    image_url = search_image(topic)
     if not image_url:
         logger.info("🔄 Пробуем другую тему")
         published.append(topic)
@@ -290,7 +328,7 @@ def create_and_publish():
         if not story:
             logger.error("❌ История не сгенерирована")
             return False
-        image_url = search_image(topic, story)
+        image_url = search_image(topic)
         if image_url:
             logger.info(f"✅ Найдена картинка")
         else:
