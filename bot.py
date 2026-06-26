@@ -25,7 +25,7 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# ФИКСИРОВАННЫЙ СПИСОК ТЕМ (110 штук, все проверены на Pexels)
+# ФИКСИРОВАННЫЙ СПИСОК ТЕМ (110 штук, проверены)
 TOPICS = [
     "ретро логотип Coca-Cola",
     "винтажная вывеска Coca-Cola",
@@ -139,8 +139,7 @@ TOPICS = [
     "старый знак MTV"
 ]
 
-# ЧЁРНЫЙ СПИСОК СЛОВ ДЛЯ ФИЛЬТРАЦИИ ФОТО
-BAD_WORDS = ['animal', 'wild', 'nature', 'zoo', 'lion', 'tiger', 'panther', 'leopard', 'cheetah', 'jaguar', 'cat', 'predator', 'wildlife', 'safari', 'beast', 'claw', 'fang', 'fur']
+BAD_WORDS = ['animal', 'wild', 'nature', 'zoo', 'lion', 'tiger', 'panther', 'leopard', 'cheetah', 'jaguar', 'cat', 'predator', 'wildlife', 'safari', 'beast', 'claw', 'fang', 'fur', 'dog', 'wolf', 'bear', 'deer', 'fox', 'rabbit', 'bird', 'eagle', 'hawk', 'owl', 'fish', 'shark', 'whale', 'dolphin']
 
 def load_published():
     try:
@@ -164,21 +163,29 @@ def save_published(articles):
         logger.error(f"Ошибка сохранения: {e}")
 
 def get_next_topic(published):
-    """Берёт следующую тему из списка, которая ещё не использовалась"""
     for topic in TOPICS:
         if topic not in published:
             return topic
-    # Если все темы использованы – сбрасываем
     logger.info("📂 Все темы использованы, сбрасываем историю")
     save_published([])
     return TOPICS[0]
 
 def clean_text(text):
-    """Удаляет ВСЕ обратные слеши и экранированные символы"""
+    """Удаляет все обратные слеши и экранированные символы (включая \- \. \, и т.п.)"""
     # Удаляем все слеши, стоящие перед любым символом
     text = re.sub(r'\\(.)', r'\1', text)
     # Убираем возможные двойные слеши
     text = re.sub(r'\\+', '', text)
+    # Удаляем экранированные дефисы, точки, запятые и т.п.
+    text = re.sub(r'\\-', '-', text)
+    text = re.sub(r'\\.', '.', text)
+    text = re.sub(r'\\,', ',', text)
+    text = re.sub(r'\\;', ';', text)
+    text = re.sub(r'\\:', ':', text)
+    text = re.sub(r'\\!', '!', text)
+    text = re.sub(r'\\?', '?', text)
+    text = re.sub(r'\\(', '(', text)
+    text = re.sub(r'\\)', ')', text)
     return text
 
 def extract_english_words(text):
@@ -194,15 +201,15 @@ def is_bad_image(alt_text):
     return False
 
 def search_pexels(query):
-    """Поиск фото с фильтрацией по alt"""
+    """Поиск фото с жёсткой фильтрацией"""
     if not PEXELS_API_KEY:
         logger.warning("⚠️ Pexels API ключ не настроен!")
         return None
 
+    # Определяем тип запроса для точного поиска
     eng = extract_english_words(query)
     base = ' '.join(eng) if eng else query
 
-    # Формируем запросы
     queries = [query]
     if eng:
         queries.append(base)
@@ -232,7 +239,7 @@ def search_pexels(query):
             logger.info(f"🔍 Ищем на Pexels: {q}")
             url = "https://api.pexels.com/v1/search"
             headers = {"Authorization": PEXELS_API_KEY}
-            params = {"query": q, "per_page": 15, "orientation": "landscape", "size": "large"}
+            params = {"query": q, "per_page": 20, "orientation": "landscape", "size": "large"}
             response = requests.get(url, headers=headers, params=params, timeout=10)
             if response.status_code != 200:
                 continue
@@ -241,7 +248,20 @@ def search_pexels(query):
                 continue
 
             keywords = set(q.lower().split())
-            # Сначала ищем фото, в alt которого есть ключевые слова
+            # Сначала ищем фото, в alt которого есть минимум 2 ключевых слова
+            for photo in data["photos"]:
+                alt = photo.get("alt", "")
+                if is_bad_image(alt):
+                    continue
+                alt_lower = alt.lower()
+                # Считаем совпадения
+                match_count = sum(1 for word in keywords if word in alt_lower)
+                if match_count >= 2:  # хотя бы два совпадения
+                    photo_url = photo["src"]["large"]
+                    logger.info(f"✅ Релевантное фото (2+ совпадений): {photo_url} (alt: {alt})")
+                    return photo_url
+
+            # Если нет, ищем с 1 совпадением
             for photo in data["photos"]:
                 alt = photo.get("alt", "")
                 if is_bad_image(alt):
@@ -249,7 +269,7 @@ def search_pexels(query):
                 alt_lower = alt.lower()
                 if any(word in alt_lower for word in keywords):
                     photo_url = photo["src"]["large"]
-                    logger.info(f"✅ Релевантное фото: {photo_url} (alt: {alt})")
+                    logger.info(f"✅ Релевантное фото (1 совпадение): {photo_url} (alt: {alt})")
                     return photo_url
 
             # Если не нашли, берём первое без животного
@@ -275,7 +295,7 @@ def generate_story(topic):
 - Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
 - Никаких упоминаний политики, войн, нацизма, фюреров, свастик.
-- НЕ ИСПОЛЬЗУЙ обратные слеши (\\) или экранирование в тексте.
+- НЕ ИСПОЛЬЗУЙ обратные слеши (\\) или экранирование в тексте. Не ставь дефисы с пробелами.
 
 Тема: {topic}
 
@@ -366,16 +386,13 @@ def create_and_publish():
     logger.info("🚀 Генерация нового поста")
     published = load_published()
 
-    # Берём следующую тему
     topic = get_next_topic(published)
     logger.info(f"📌 Тема: {topic}")
 
-    # Ищем картинку
     image_url = search_pexels(topic)
     if not image_url:
-        # Если не нашлось, пробуем альтернативную тему (следующую)
         alt_topic = get_next_topic(published + [topic])
-        logger.info(f"🔄 Пробуем альтернативную тему: {alt_topic}")
+        logger.info(f"🔄 Пробуем альтернативу: {alt_topic}")
         image_url = search_pexels(alt_topic)
         if image_url:
             topic = alt_topic
@@ -383,7 +400,6 @@ def create_and_publish():
         else:
             logger.warning(f"⚠️ Для '{topic}' картинка не найдена, публикуем без фото")
 
-    # Генерируем историю
     story = generate_story(topic)
     if not story:
         logger.error("❌ История не сгенерирована")
