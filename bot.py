@@ -25,19 +25,11 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# ----- СПИСКИ ДЛЯ ГЕНЕРАЦИИ ТЕМ -----
-
 ERAS = ["1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х", "1980-х", "1990-х"]
-
 STYLES = ["ретро", "винтажный", "старый", "классический", "ар-деко", "модерн", "баухаус", "конструктивизм", "поп-арт", "скандинавский", "индустриальный"]
-
 OBJECTS = ["логотип", "вывеска", "плакат", "постер", "реклама", "упаковка", "этикетка", "афиша", "интерьер", "кафе", "ресторан", "витрина", "стул", "кресло", "светильник", "лампа", "здание", "архитектура", "автомобиль", "часы", "телефон", "радиоприемник", "фотоаппарат", "телевизор", "журнал", "газета", "игрушка", "ковер"]
+BRANDS = ["Apple", "Nike", "Coca-Cola", "McDonald's", "Chanel", "Volkswagen", "IBM", "Mercedes-Benz", "Starbucks", "Adidas", "BMW", "Ford", "Levi's", "Rolex", "Kodak", "Disney", "MTV", "NASA", "Toyota", "Sony", "Philips", "Braun", "IKEA", "Lego", "Ferrari", "Porsche", "Tesla", "Google", "Microsoft", "Puma", "Reebok", "Lacoste", "Ralph Lauren", "Vogue", "Harley-Davidson", "Dior", "Versace", "Gucci"]
 
-BRANDS = ["Apple", "Nike", "Coca-Cola", "McDonald's", "Chanel", "Volkswagen", "IBM", "Mercedes-Benz", "Starbucks", "Adidas", "BMW", "Ford", "Levi's", "Rolex", "Kodak", "Disney", "MTV", "NASA", "Toyota", "Sony", "Philips", "Braun", "IKEA", "Lego", "Ferrari", "Porsche", "Tesla", "Google", "Microsoft", "Puma", "Reebok", "Lacoste", "Ralph Lauren", "Vogue", "Harley-Davidson", "Chanel", "Dior", "Versace", "Gucci"]
-
-# ----- КОНЕЦ СПИСКОВ -----
-
-# ЧЁРНЫЙ СПИСОК СЛОВ ДЛЯ ФИЛЬТРАЦИИ ФОТО
 BAD_WORDS = ['animal', 'wild', 'nature', 'zoo', 'lion', 'tiger', 'panther', 'leopard', 'cheetah', 'jaguar', 'cat', 'predator', 'wildlife', 'safari', 'beast', 'claw', 'fang', 'fur']
 
 def load_published():
@@ -92,7 +84,7 @@ def get_unique_topic(published):
     return generate_topic()
 
 def escape_md(text):
-    # Убираем все возможные слеши и экранирование
+    # Не экранируем лишнего, только самые опасные символы
     chars = r'_*#+-=|{}>'
     return ''.join('\\' + c if c in chars else c for c in text)
 
@@ -100,7 +92,6 @@ def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def is_bad_image(alt_text):
-    """Проверяет, содержит ли alt текст стоп-слова (животные, природа)"""
     if not alt_text:
         return False
     alt_lower = alt_text.lower()
@@ -110,7 +101,6 @@ def is_bad_image(alt_text):
     return False
 
 def search_pexels(query):
-    """Поиск с фильтрацией фото, исключающей животных и природу"""
     if not PEXELS_API_KEY:
         logger.warning("⚠️ Pexels API ключ не настроен!")
         return None
@@ -118,14 +108,14 @@ def search_pexels(query):
     eng = extract_english_words(query)
     base = ' '.join(eng) if eng else query
 
-    # Формируем запросы с акцентом на дизайн
+    # Формируем множество запросов
     queries = [query]
     if eng:
         queries.append(base)
         if any(w in query for w in ['логотип', 'logo']):
             queries.append(f"{base} logo")
             queries.append(f"vintage {base} logo")
-            queries.append(f"{base} brand logo")
+            queries.append(f"{base} brand")
         if any(w in query for w in ['плакат', 'постер', 'poster']):
             queries.append(f"{base} poster")
             queries.append(f"vintage {base} poster")
@@ -139,6 +129,9 @@ def search_pexels(query):
             queries.append(f"vintage {base} car")
         if any(w in query for w in ['вывеска', 'sign']):
             queries.append(f"vintage {base} sign")
+        if any(w in query for w in ['часы', 'watch']):
+            queries.append(f"vintage {base} watch")
+            queries.append(f"retro {base} watch")
         queries.append(f"vintage {base}")
         queries.append(f"retro {base}")
         queries.append(f"design {base}")
@@ -149,7 +142,7 @@ def search_pexels(query):
             logger.info(f"🔍 Ищем на Pexels: {q}")
             url = "https://api.pexels.com/v1/search"
             headers = {"Authorization": PEXELS_API_KEY}
-            params = {"query": q, "per_page": 10, "orientation": "landscape", "size": "large"}
+            params = {"query": q, "per_page": 15, "orientation": "landscape", "size": "large"}
             response = requests.get(url, headers=headers, params=params, timeout=10)
             if response.status_code != 200:
                 continue
@@ -158,17 +151,14 @@ def search_pexels(query):
                 continue
 
             # Проверяем каждое фото
+            keywords = set(q.lower().split())
             for photo in data["photos"]:
                 alt = photo.get("alt", "")
-                # Пропускаем фото с животными/природой
                 if is_bad_image(alt):
-                    logger.info(f"⛔ Пропускаем фото с животным: {alt}")
                     continue
-
-                # Проверяем релевантность по ключевым словам
                 alt_lower = alt.lower()
-                words = q.lower().split()
-                if any(word in alt_lower for word in words):
+                # Если alt содержит хотя бы одно ключевое слово из запроса
+                if any(word in alt_lower for word in keywords):
                     photo_url = photo["src"]["large"]
                     logger.info(f"✅ Релевантное фото: {photo_url} (alt: {alt})")
                     return photo_url
@@ -187,6 +177,14 @@ def search_pexels(query):
     logger.warning("❌ Не найдено подходящее фото")
     return None
 
+def clean_text(text):
+    """Удаляет ВСЕ обратные слеши и экранированные символы"""
+    # Удаляем все слеши, стоящие перед любым символом
+    text = re.sub(r'\\(.)', r'\1', text)
+    # Убираем возможные двойные слеши
+    text = re.sub(r'\\+', '', text)
+    return text
+
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
 
@@ -196,7 +194,7 @@ def generate_story(topic):
 - Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
 - Никаких упоминаний политики, войн, нацизма, фюреров, свастик.
-- НЕ ИСПОЛЬЗУЙ обратные слеши (\\) или экранирование в тексте. Вообще никаких \.
+- НЕ ИСПОЛЬЗУЙ обратные слеши (\\) или экранирование в тексте.
 
 Тема: {topic}
 
@@ -210,16 +208,8 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            # Удаляем вводные фразы
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
-            # Удаляем ВСЕ слеши (одиночные, двойные, экранированные)
-            story = re.sub(r'\\+', '', story)
-            # Удаляем экранированные точки и скобки
-            story = re.sub(r'\\\(', '(', story)
-            story = re.sub(r'\\\)', ')', story)
-            story = re.sub(r'\\\.', '.', story)
-            story = re.sub(r'\\\!', '!', story)
-            story = re.sub(r'\\\?', '?', story)
+            story = clean_text(story)  # Удаляем все слеши
             return story
         else:
             logger.error(f"Polza error: {response.status_code}")
@@ -253,13 +243,8 @@ def truncate_to_sentence(text, max_len):
             return ensure_complete(truncated + '...')
 
 def publish_to_channel(text, image_url):
-    # Жёстко чистим текст от слешей перед отправкой
-    text = re.sub(r'\\+', '', text)
-    text = re.sub(r'\\\(', '(', text)
-    text = re.sub(r'\\\)', ')', text)
-    text = re.sub(r'\\\.', '.', text)
-    text = re.sub(r'\\\!', '!', text)
-    text = re.sub(r'\\\?', '?', text)
+    # Чистим текст от слешей ещё раз
+    text = clean_text(text)
 
     if image_url:
         try:
