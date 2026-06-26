@@ -61,39 +61,61 @@ def save_published(articles):
     with open(PUBLISHED_FILE, "w") as f:
         json.dump(articles[-100:], f)
 
+def escape_md(text):
+    """Экранирует спецсимволы Markdown, чтобы они не ломали формат"""
+    chars = r'_*[]()~`>#+-=|{}.!'
+    return ''.join('\\' + c if c in chars else c for c in text)
+
 def search_wikimedia(query):
-    try:
-        search_url = "https://commons.wikimedia.org/w/api.php"
-        search_params = {
-            "action": "query",
-            "format": "json",
-            "list": "search",
-            "srsearch": query,
-            "srnamespace": 6
-        }
-        search_resp = requests.get(search_url, params=search_params, timeout=10)
-        data = search_resp.json()
-        if not data.get("query", {}).get("search"):
-            return None
-        title = data["query"]["search"][0]["title"]
-        info_url = "https://commons.wikimedia.org/w/api.php"
-        info_params = {
-            "action": "query",
-            "format": "json",
-            "titles": title,
-            "prop": "imageinfo",
-            "iiprop": "url"
-        }
-        info_resp = requests.get(info_url, params=info_params, timeout=10)
-        info_data = info_resp.json()
-        pages = info_data.get("query", {}).get("pages", {})
-        for page in pages.values():
-            if page.get("imageinfo"):
-                return page["imageinfo"][0]["url"]
-        return None
-    except Exception as e:
-        logger.error(f"Wikimedia error: {e}")
-        return None
+    """Улучшенный поиск картинок: несколько запросов, фильтр по расширениям"""
+    queries = [
+        query,
+        query + " design",
+        query + " logo",
+        query.split()[0] if len(query.split()) > 1 else None,
+    ]
+    queries = [q for q in queries if q]
+
+    for q in queries:
+        try:
+            logger.info(f"🔍 Ищем на Wikimedia: {q}")
+            search_url = "https://commons.wikimedia.org/w/api.php"
+            search_params = {
+                "action": "query",
+                "format": "json",
+                "list": "search",
+                "srsearch": q,
+                "srnamespace": 6
+            }
+            search_resp = requests.get(search_url, params=search_params, timeout=10)
+            data = search_resp.json()
+            if not data.get("query", {}).get("search"):
+                continue
+
+            title = data["query"]["search"][0]["title"]
+            info_url = "https://commons.wikimedia.org/w/api.php"
+            info_params = {
+                "action": "query",
+                "format": "json",
+                "titles": title,
+                "prop": "imageinfo",
+                "iiprop": "url"
+            }
+            info_resp = requests.get(info_url, params=info_params, timeout=10)
+            info_data = info_resp.json()
+            pages = info_data.get("query", {}).get("pages", {})
+            for page in pages.values():
+                if page.get("imageinfo"):
+                    url = page["imageinfo"][0]["url"]
+                    if re.search(r'\.(jpg|jpeg|png|gif|webp)(\?.*)?$', url, re.I):
+                        logger.info(f"✅ Найдено изображение: {url}")
+                        return url
+                    else:
+                        logger.warning(f"⛔ Неподдерживаемый формат: {url}")
+        except Exception as e:
+            logger.error(f"Wikimedia error: {e}")
+    logger.warning("❌ Изображение не найдено ни по одному запросу")
+    return None
 
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую историю (700–800 символов) на тему: {topic}.
@@ -116,12 +138,13 @@ def generate_story(topic):
                 "model": MODEL,
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.9,
-                "max_tokens": 800
+                "max_tokens": 900  # оставляем с запасом, чтобы уложиться в 800 символов
             },
             timeout=90
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
+            # Удаляем вводные фразы
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
             return story
         else:
@@ -131,14 +154,36 @@ def generate_story(topic):
         logger.error(f"Generate story error: {e}")
         return None
 
+def truncate_to_sentence(text, max_len):
+    """
+    Обрезает текст до max_len символов, заканчивая на точке/вопросе/восклицании.
+    Если разделитель найден – обрезает по нему, иначе обрезает по пробелу и ставит многоточие.
+    """
+    if len(text) <= max_len:
+        return text
+    truncated = text[:max_len]
+    # Ищем последний разделитель предложений в пределах max_len
+    last_punct = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
+    if last_punct > max_len * 0.6:  # чтобы не обрезать слишком коротко
+        return truncated[:last_punct+1]
+    else:
+        # Если нет разделителя – обрезаем по последнему пробелу и ставим многоточие
+        last_space = truncated.rfind(' ')
+        if last_space > max_len * 0.6:
+            return truncated[:last_space] + '...'
+        else:
+            return truncated + '...'
+
 def publish_to_channel(text, image_url):
+    """Отправляет с картинкой (если есть), иначе просто текст"""
     if image_url:
         try:
             img_data = requests.get(image_url, timeout=30).content
             files = {'photo': ('image.jpg', img_data)}
+            caption = text[:1024]  # подпись к фото ограничена 1024 символами
             data = {
                 'chat_id': CHANNEL_ID,
-                'caption': text[:1024],
+                'caption': caption,
                 'parse_mode': 'Markdown'
             }
             resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
@@ -146,13 +191,18 @@ def publish_to_channel(text, image_url):
                 logger.info("✅ Пост с картинкой опубликован")
                 return True
             else:
-                logger.error(f"Telegram error: {resp.status_code} - {resp.text[:200]}")
+                logger.error(f"Telegram error (photo): {resp.status_code} - {resp.text[:200]}")
+                # если фото не отправилось – пробуем текст
+                image_url = None
         except Exception as e:
             logger.error(f"Photo send error: {e}")
-    # fallback
+            image_url = None
+
+    # Отправка только текста (если картинки нет или она не прошла)
+    safe_text = escape_md(truncate_to_sentence(text, 4096))  # лимит Telegram 4096
     payload = {
         'chat_id': CHANNEL_ID,
-        'text': text[:4096],
+        'text': safe_text,
         'parse_mode': 'Markdown'
     }
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
@@ -171,24 +221,28 @@ def create_and_publish():
     if not available:
         save_published([])
         available = TOPICS
-        logger.info("История сброшена")
+        logger.info("📂 История сброшена (все темы использованы)")
     topic = random.choice(available)
     logger.info(f"📌 Тема: {topic}")
 
+    # Поиск картинки
     image_url = search_wikimedia(topic)
-    if not image_url:
+    if not image_url and len(topic.split()) > 1:
         image_url = search_wikimedia(topic.split()[0])
-    if not image_url:
-        image_url = None  # если ничего не найдено — без картинки
 
+    # Генерация истории
     story = generate_story(topic)
     if not story:
-        logger.error("История не сгенерирована")
+        logger.error("❌ История не сгенерирована")
         return False
 
+    # Собираем финальный текст: заголовок + история (обрезанная до 800 символов) + футер
     header = "📐 **Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
-    full_text = header + story[:800] + footer
+    
+    # Обрезаем историю до 800 символов с сохранением целого предложения
+    story_cut = truncate_to_sentence(story, 800)
+    full_text = header + story_cut + footer
 
     success = publish_to_channel(full_text, image_url)
     if success:
@@ -217,7 +271,7 @@ def run_schedule():
             if not next_run:
                 next_run = now.replace(day=now.day + 1, hour=10, minute=0, second=0, microsecond=0)
             wait_seconds = (next_run - now).total_seconds()
-            logger.info(f"Следующий пост в {next_run.strftime('%H:%M')} UTC (через {int(wait_seconds/60)} мин)")
+            logger.info(f"⏳ Следующий пост в {next_run.strftime('%H:%M')} UTC (через {int(wait_seconds/60)} мин)")
             time.sleep(wait_seconds)
             create_and_publish()
 
