@@ -16,9 +16,7 @@ CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
 MODEL = "deepseek/deepseek-v4-flash"
 
-# ====== ВАШ КЛЮЧ PIXABAY ======
 PIXABAY_API_KEY = "4565619-33976f9ea2f6dc09d5d97cd59"
-# ===============================
 
 TEST_MODE = True
 TEST_INTERVAL = 60
@@ -28,7 +26,6 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# ФИКСИРОВАННЫЙ СПИСОК ТЕМ (110 шт.)
 TOPICS = [
     "ретро логотип Coca-Cola",
     "винтажная вывеска Coca-Cola",
@@ -171,24 +168,12 @@ def get_next_topic(published):
     return TOPICS[0]
 
 def clean_text(text):
-    """Удаляет все обратные слеши и лишние пробелы, без сложных регулярных выражений"""
+    """Удаляет ВСЕ обратные слеши простой заменой"""
     if not text:
         return text
-    try:
-        # 1. Удаляем все обратные слеши
-        text = text.replace('\\', '')
-        # 2. Убираем множественные пробелы
-        text = re.sub(r'\s+', ' ', text)
-        # 3. Убираем пробелы перед знаками препинания
-        text = re.sub(r' ,', ',', text)
-        text = re.sub(r' \.', '.', text)
-        text = re.sub(r' !', '!', text)
-        text = re.sub(r' \?', '?', text)
-        # 4. Убираем пробелы в начале и конце
-        return text.strip()
-    except Exception as e:
-        logger.error(f"clean_text error: {e}")
-        return text
+    text = text.replace('\\', '')  # Удаляем все слеши
+    text = ' '.join(text.split())  # Убираем лишние пробелы
+    return text
 
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
@@ -304,13 +289,13 @@ def search_image(query):
     logger.info(f"🔍 Поиск фото для: {query}")
     url = search_pixabay(query)
     if url:
-        logger.info(f"✅ Pixabay: {url}")
+        logger.info(f"✅ Pixabay найден")
         return url
     url = search_wikimedia(query)
     if url:
-        logger.info(f"✅ Wikimedia: {url}")
+        logger.info(f"✅ Wikimedia найден")
         return url
-    logger.warning("❌ Фото не найдено ни в одном источнике")
+    logger.warning("❌ Фото не найдено")
     return None
 
 def generate_story(topic):
@@ -321,11 +306,11 @@ def generate_story(topic):
 - История должна быть законченной: вступление, основная часть, вывод или вопрос.
 - Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
-- ЗАПРЕЩЕНО использовать обратные слеши (\) в тексте.
+- НЕ ИСПОЛЬЗУЙ обратную косую черту (\) В ТЕКСТЕ.
 
 Тема: {topic}
 
-Напиши историю (без лишних вступлений):"""
+Напиши историю:"""
     try:
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
@@ -335,10 +320,6 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            try:
-                story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
-            except Exception as e:
-                logger.warning(f"Ошибка в re.sub: {e}, пропускаем")
             story = clean_text(story)
             return story
         else:
@@ -348,30 +329,20 @@ def generate_story(topic):
         logger.error(f"Generate story error: {e}")
         return None
 
-def ensure_complete(text):
-    if not text:
-        return text
-    if text[-1] in '.!?':
-        return text
-    if text[-1] in ':,;—' or text.endswith(('что', 'как', 'это', '—')):
-        return text + ' Вот такая история!'
-    else:
-        return text + '.'
-
 def truncate_to_sentence(text, max_len):
     text = clean_text(text)
     if len(text) <= max_len:
-        return ensure_complete(text)
+        return text
     truncated = text[:max_len]
     last_punct = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
     if last_punct > max_len * 0.6:
-        return ensure_complete(truncated[:last_punct+1])
+        return truncated[:last_punct+1]
     else:
         last_space = truncated.rfind(' ')
         if last_space > max_len * 0.6:
-            return ensure_complete(truncated[:last_space] + '...')
+            return truncated[:last_space] + '...'
         else:
-            return ensure_complete(truncated + '...')
+            return truncated + '...'
 
 def escape_md(text):
     chars = r'_*#+-=|{}>'
@@ -380,28 +351,39 @@ def escape_md(text):
 def publish_to_channel(text, image_url):
     text = clean_text(text)
 
+    # Публикуем с картинкой, если есть
     if image_url:
         try:
-            logger.info(f"📥 Скачиваем: {image_url}")
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            logger.info(f"📥 Скачиваем картинку")
+            headers = {'User-Agent': 'Mozilla/5.0'}
             img_response = requests.get(image_url, headers=headers, timeout=30)
             if img_response.status_code == 200:
                 img_data = img_response.content
-                if len(img_data) <= 20 * 1024 * 1024:
-                    caption = escape_md(clean_text(text[:1024]))
+                if len(img_data) > 20 * 1024 * 1024:
+                    logger.warning("Картинка >20 МБ, пропускаем")
+                    image_url = None
+                else:
+                    caption = clean_text(text[:1024])
+                    caption = escape_md(caption)
                     files = {'photo': ('image.jpg', img_data)}
                     data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
                     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
                     if resp.status_code == 200:
                         logger.info("✅ Пост с картинкой")
                         return True
-            logger.warning("Не удалось отправить фото, публикуем текст")
-            image_url = None
+                    else:
+                        logger.error(f"Telegram error: {resp.text}")
+                        image_url = None
+            else:
+                logger.warning(f"Не скачалось: {img_response.status_code}")
+                image_url = None
         except Exception as e:
             logger.error(f"Image error: {e}")
             image_url = None
 
-    safe_text = escape_md(truncate_to_sentence(text, 4096))
+    # Публикуем только текст
+    safe_text = clean_text(text[:4096])
+    safe_text = escape_md(safe_text)
     payload = {'chat_id': CHANNEL_ID, 'text': safe_text, 'parse_mode': 'Markdown'}
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
     if resp.status_code == 200:
@@ -413,7 +395,7 @@ def publish_to_channel(text, image_url):
 
 def create_and_publish():
     logger.info("=" * 40)
-    logger.info("🚀 Генерация нового поста")
+    logger.info("🚀 Новый пост")
     published = load_published()
 
     topic = get_next_topic(published)
@@ -422,13 +404,14 @@ def create_and_publish():
     image_url = search_image(topic)
     if not image_url:
         alt_topic = get_next_topic(published + [topic])
-        logger.info(f"🔄 Пробуем альтернативную тему: {alt_topic}")
+        logger.info(f"🔄 Альтернатива: {alt_topic}")
         image_url = search_image(alt_topic)
         if image_url:
             topic = alt_topic
-            logger.info(f"✅ Для '{topic}' найдена картинка")
-        else:
-            logger.warning(f"⚠️ Для '{topic}' картинка не найдена, публикуем без фото")
+            logger.info(f"✅ Найдена картинка для '{topic}'")
+
+    if not image_url:
+        logger.warning("⚠️ Без картинки")
 
     story = generate_story(topic)
     if not story:
@@ -438,16 +421,16 @@ def create_and_publish():
     header = "📐 **Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     story_cut = truncate_to_sentence(story, 800)
-    full_text = header + story_cut + footer
+    full_text = clean_text(header + story_cut + footer)
 
     success = publish_to_channel(full_text, image_url)
     if success:
         published.append(topic)
         save_published(published)
-        logger.info(f"✅ Пост опубликован (тема: {topic})")
+        logger.info(f"✅ Опубликовано: {topic}")
         return True
     else:
-        logger.error("❌ Ошибка публикации")
+        logger.error("❌ Ошибка")
         return False
 
 def run_schedule():
@@ -469,10 +452,10 @@ def run_schedule():
             if not next_run:
                 next_run = now.replace(day=now.day + 1, hour=10, minute=0, second=0, microsecond=0)
             wait_seconds = (next_run - now).total_seconds()
-            logger.info(f"⏳ Следующий пост в {next_run.strftime('%H:%M')} UTC (через {int(wait_seconds/60)} мин)")
+            logger.info(f"⏳ Следующий пост в {next_run.strftime('%H:%M')} UTC")
             time.sleep(wait_seconds)
             create_and_publish()
 
 if __name__ == "__main__":
-    logger.info("📐 ИСТОРИИ ПРО ДИЗАЙН — БОТ ЗАПУЩЕН 📐")
+    logger.info("📐 ИСТОРИИ ПРО ДИЗАЙН — ЗАПУСК")
     run_schedule()
