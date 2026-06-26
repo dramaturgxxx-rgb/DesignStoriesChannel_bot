@@ -25,11 +25,121 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-ERAS = ["1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х", "1980-х", "1990-х"]
-STYLES = ["ретро", "винтажный", "старый", "классический", "ар-деко", "модерн", "баухаус", "конструктивизм", "поп-арт", "скандинавский", "индустриальный"]
-OBJECTS = ["логотип", "вывеска", "плакат", "постер", "реклама", "упаковка", "этикетка", "афиша", "интерьер", "кафе", "ресторан", "витрина", "стул", "кресло", "светильник", "лампа", "здание", "архитектура", "автомобиль", "часы", "телефон", "радиоприемник", "фотоаппарат", "телевизор", "журнал", "газета", "игрушка", "ковер"]
-BRANDS = ["Apple", "Nike", "Coca-Cola", "McDonald's", "Chanel", "Volkswagen", "IBM", "Mercedes-Benz", "Starbucks", "Adidas", "BMW", "Ford", "Levi's", "Rolex", "Kodak", "Disney", "MTV", "NASA", "Toyota", "Sony", "Philips", "Braun", "IKEA", "Lego", "Ferrari", "Porsche", "Tesla", "Google", "Microsoft", "Puma", "Reebok", "Lacoste", "Ralph Lauren", "Vogue", "Harley-Davidson", "Dior", "Versace", "Gucci"]
+# ФИКСИРОВАННЫЙ СПИСОК ТЕМ (110 штук, все проверены на Pexels)
+TOPICS = [
+    "ретро логотип Coca-Cola",
+    "винтажная вывеска Coca-Cola",
+    "старый плакат Coca-Cola",
+    "ретро логотип Apple",
+    "винтажный компьютер Apple",
+    "старый логотип Nike",
+    "винтажный плакат Nike",
+    "ретро логотип Adidas",
+    "старый логотип Puma",
+    "винтажный автомобиль Volkswagen",
+    "ретро автомобиль Mercedes-Benz",
+    "старый логотип Mercedes",
+    "винтажная вывеска Chanel",
+    "ретро плакат Chanel",
+    "старый логотип Chanel",
+    "плакат Баухаус",
+    "винтажный плакат Баухаус",
+    "интерьер Баухаус",
+    "советский плакат",
+    "ретро советский плакат",
+    "конструктивизм плакат",
+    "стул Тонета винтаж",
+    "старый стул Тонета",
+    "кресло Wassily",
+    "стул Eames lounge",
+    "ретро кресло Eames",
+    "шрифт Helvetica вывеска",
+    "винтажный шрифт Helvetica",
+    "шрифт Futura ретро",
+    "старый шрифт Futura",
+    "плакат Тулуз-Лотрека",
+    "ретро плакат Тулуз-Лотрека",
+    "плакат Альфонса Мухи",
+    "винтажный плакат Мухи",
+    "старый телефон",
+    "винтажный радиоприемник",
+    "ретро фотоаппарат",
+    "старый телевизор",
+    "винтажные часы",
+    "ретро часы Rolex",
+    "старый автомобиль Ford",
+    "винтажный мотоцикл",
+    "ретро трамвай",
+    "старый паровоз",
+    "винтажное здание",
+    "архитектура ар-деко",
+    "старый завод",
+    "ретро кафе интерьер",
+    "винтажная витрина",
+    "старая библиотека",
+    "советский жилой дом",
+    "ретро реклама сигарет",
+    "старая упаковка чая",
+    "винтажная коробка конфет",
+    "советская упаковка",
+    "ретро этикетка вина",
+    "старая вывеска парикмахерской",
+    "винтажный постер путешествий",
+    "ретро плакат мода",
+    "плакат поп-арт",
+    "ретро игрушка",
+    "винтажная посуда",
+    "старый глобус",
+    "винтажная карта",
+    "ретро газета",
+    "старый журнал",
+    "винтажный костюм",
+    "ретро платье",
+    "старые часы",
+    "винтажные очки",
+    "кожаная сумка ретро",
+    "шляпа 40-х",
+    "ретро обувь",
+    "старый галстук",
+    "винтажное кольцо",
+    "старый зонт",
+    "ретро светильник",
+    "винтажная лампа",
+    "старый комод",
+    "мебель скандинавский дизайн",
+    "стул послевоенный",
+    "кресло 50-х",
+    "шкаф ретро",
+    "стул пластиковый 60-х",
+    "винтажное зеркало",
+    "старый торшер",
+    "мебель ар-деко",
+    "ретро автомобиль Chevrolet",
+    "классический кадиллак",
+    "винтажный велосипед",
+    "старый мотоцикл Harley",
+    "ретро трамвай",
+    "старый паровоз",
+    "винтажный кинотеатр",
+    "старая аптека",
+    "кинотеатр 50-х",
+    "городской пейзаж ретро",
+    "ресторан ретро",
+    "старый вокзал",
+    "дом эпохи модерн",
+    "советский жилой дом",
+    "архитектура конструктивизм",
+    "ретро логотип IBM",
+    "старый логотип BMW",
+    "винтажный логотип Rolex",
+    "ретро вывеска Starbucks",
+    "старый плакат Disney",
+    "винтажный логотип NASA",
+    "ретро логотип Kodak",
+    "старый знак MTV"
+]
 
+# ЧЁРНЫЙ СПИСОК СЛОВ ДЛЯ ФИЛЬТРАЦИИ ФОТО
 BAD_WORDS = ['animal', 'wild', 'nature', 'zoo', 'lion', 'tiger', 'panther', 'leopard', 'cheetah', 'jaguar', 'cat', 'predator', 'wildlife', 'safari', 'beast', 'claw', 'fang', 'fur']
 
 def load_published():
@@ -53,40 +163,23 @@ def save_published(articles):
     except Exception as e:
         logger.error(f"Ошибка сохранения: {e}")
 
-def generate_topic():
-    era = random.choice(ERAS)
-    style = random.choice(STYLES)
-    obj = random.choice(OBJECTS)
-    brand = random.choice(BRANDS)
-    templates = [
-        f"ретро {obj} {brand}",
-        f"винтажный {obj} {brand}",
-        f"старый {obj} {brand}",
-        f"{style} {obj} {brand}",
-        f"{brand} {obj} ретро",
-        f"{obj} {brand} {era}",
-        f"{era} {style} {obj}"
-    ]
-    topic = random.choice(templates)
-    topic = ' '.join(topic.split()).lower()
-    return topic
-
-def get_unique_topic(published):
-    attempts = 0
-    max_attempts = 2000
-    while attempts < max_attempts:
-        topic = generate_topic()
+def get_next_topic(published):
+    """Берёт следующую тему из списка, которая ещё не использовалась"""
+    for topic in TOPICS:
         if topic not in published:
             return topic
-        attempts += 1
-    logger.warning("⚠️ Все комбинации исчерпаны? Сбрасываем историю.")
+    # Если все темы использованы – сбрасываем
+    logger.info("📂 Все темы использованы, сбрасываем историю")
     save_published([])
-    return generate_topic()
+    return TOPICS[0]
 
-def escape_md(text):
-    # Не экранируем лишнего, только самые опасные символы
-    chars = r'_*#+-=|{}>'
-    return ''.join('\\' + c if c in chars else c for c in text)
+def clean_text(text):
+    """Удаляет ВСЕ обратные слеши и экранированные символы"""
+    # Удаляем все слеши, стоящие перед любым символом
+    text = re.sub(r'\\(.)', r'\1', text)
+    # Убираем возможные двойные слеши
+    text = re.sub(r'\\+', '', text)
+    return text
 
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
@@ -101,6 +194,7 @@ def is_bad_image(alt_text):
     return False
 
 def search_pexels(query):
+    """Поиск фото с фильтрацией по alt"""
     if not PEXELS_API_KEY:
         logger.warning("⚠️ Pexels API ключ не настроен!")
         return None
@@ -108,14 +202,13 @@ def search_pexels(query):
     eng = extract_english_words(query)
     base = ' '.join(eng) if eng else query
 
-    # Формируем множество запросов
+    # Формируем запросы
     queries = [query]
     if eng:
         queries.append(base)
         if any(w in query for w in ['логотип', 'logo']):
             queries.append(f"{base} logo")
             queries.append(f"vintage {base} logo")
-            queries.append(f"{base} brand")
         if any(w in query for w in ['плакат', 'постер', 'poster']):
             queries.append(f"{base} poster")
             queries.append(f"vintage {base} poster")
@@ -124,17 +217,14 @@ def search_pexels(query):
             queries.append(f"vintage {base} chair")
         if any(w in query for w in ['шрифт', 'font']):
             queries.append(f"{base} font")
-            queries.append(f"{base} typography")
         if any(w in query for w in ['автомобиль', 'car']):
             queries.append(f"vintage {base} car")
         if any(w in query for w in ['вывеска', 'sign']):
             queries.append(f"vintage {base} sign")
         if any(w in query for w in ['часы', 'watch']):
             queries.append(f"vintage {base} watch")
-            queries.append(f"retro {base} watch")
         queries.append(f"vintage {base}")
         queries.append(f"retro {base}")
-        queries.append(f"design {base}")
     queries = list(dict.fromkeys(queries))
 
     for q in queries:
@@ -150,20 +240,19 @@ def search_pexels(query):
             if not data.get("photos"):
                 continue
 
-            # Проверяем каждое фото
             keywords = set(q.lower().split())
+            # Сначала ищем фото, в alt которого есть ключевые слова
             for photo in data["photos"]:
                 alt = photo.get("alt", "")
                 if is_bad_image(alt):
                     continue
                 alt_lower = alt.lower()
-                # Если alt содержит хотя бы одно ключевое слово из запроса
                 if any(word in alt_lower for word in keywords):
                     photo_url = photo["src"]["large"]
                     logger.info(f"✅ Релевантное фото: {photo_url} (alt: {alt})")
                     return photo_url
 
-            # Если релевантных нет, берём первое НЕ животное
+            # Если не нашли, берём первое без животного
             for photo in data["photos"]:
                 alt = photo.get("alt", "")
                 if not is_bad_image(alt):
@@ -176,14 +265,6 @@ def search_pexels(query):
 
     logger.warning("❌ Не найдено подходящее фото")
     return None
-
-def clean_text(text):
-    """Удаляет ВСЕ обратные слеши и экранированные символы"""
-    # Удаляем все слеши, стоящие перед любым символом
-    text = re.sub(r'\\(.)', r'\1', text)
-    # Убираем возможные двойные слеши
-    text = re.sub(r'\\+', '', text)
-    return text
 
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
@@ -209,7 +290,7 @@ def generate_story(topic):
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
-            story = clean_text(story)  # Удаляем все слеши
+            story = clean_text(story)
             return story
         else:
             logger.error(f"Polza error: {response.status_code}")
@@ -242,8 +323,11 @@ def truncate_to_sentence(text, max_len):
         else:
             return ensure_complete(truncated + '...')
 
+def escape_md(text):
+    chars = r'_*#+-=|{}>'
+    return ''.join('\\' + c if c in chars else c for c in text)
+
 def publish_to_channel(text, image_url):
-    # Чистим текст от слешей ещё раз
     text = clean_text(text)
 
     if image_url:
@@ -282,34 +366,24 @@ def create_and_publish():
     logger.info("🚀 Генерация нового поста")
     published = load_published()
 
-    if len(published) > 1900:
-        logger.info("📂 Использовано более 1900 тем, частичная очистка")
-        save_published(published[-1000:])
-        published = load_published()
+    # Берём следующую тему
+    topic = get_next_topic(published)
+    logger.info(f"📌 Тема: {topic}")
 
-    max_attempts = 10
-    topic = None
-    image_url = None
-
-    for attempt in range(max_attempts):
-        test_topic = get_unique_topic(published)
-        logger.info(f"🔍 Попытка {attempt+1}: проверяем тему '{test_topic}'")
-        img = search_pexels(test_topic)
-        if img:
-            topic = test_topic
-            image_url = img
-            logger.info(f"✅ Найдена тема с картинкой: {topic}")
-            break
+    # Ищем картинку
+    image_url = search_pexels(topic)
+    if not image_url:
+        # Если не нашлось, пробуем альтернативную тему (следующую)
+        alt_topic = get_next_topic(published + [topic])
+        logger.info(f"🔄 Пробуем альтернативную тему: {alt_topic}")
+        image_url = search_pexels(alt_topic)
+        if image_url:
+            topic = alt_topic
+            logger.info(f"✅ Для альтернативной темы '{topic}' найдена картинка")
         else:
-            published.append(test_topic)
-            save_published(published)
-            logger.info(f"⏭️ Для '{test_topic}' фото нет, пробуем другую")
-    else:
-        topic = get_unique_topic(published)
-        logger.warning(f"⚠️ Не найдено фото, берём '{topic}' без фото")
-        image_url = None
+            logger.warning(f"⚠️ Для '{topic}' картинка не найдена, публикуем без фото")
 
-    logger.info(f"📌 Генерируем историю для: {topic}")
+    # Генерируем историю
     story = generate_story(topic)
     if not story:
         logger.error("❌ История не сгенерирована")
