@@ -25,30 +25,43 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-TOPICS = [
-    "логотип Apple",
-    "логотип Nike",
-    "логотип Coca-Cola",
-    "логотип FedEx",
-    "логотип McDonald's",
-    "логотип Chanel",
-    "логотип Volkswagen",
-    "логотип IBM",
-    "логотип Mercedes-Benz",
-    "логотип Starbucks",
-    "плакат Тулуз-Лотрека",
-    "плакат Альфонса Мухи",
-    "плакат Баухаус",
-    "советский плакат",
-    "ВХУТЕМАС",
-    "советский конструктивизм",
-    "стул №14 Михаэля Тонета",
-    "кресло Wassily",
-    "стул Eames",
-    "шрифт Times New Roman",
-    "шрифт Helvetica",
-    "шрифт Futura",
+# ----- БОЛЬШИЕ СПИСКИ ДЛЯ ГЕНЕРАЦИИ ТЕМ -----
+
+ERAS = [
+    "1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х",
+    "1980-х", "1990-х", "2000-х", "2010-х", "2020-х"
 ]
+
+STYLES = [
+    "конструктивизм", "ар-деко", "модерн", "ар-нуво", "поп-арт",
+    "баухаус", "минимализм", "функционализм", "хай-тек", "брутализм",
+    "скандинавский", "средиземноморский", "японский", "американский",
+    "советский", "винтажный", "ретро", "индустриальный", "органический",
+    "постмодернизм"
+]
+
+OBJECTS = [
+    "логотип", "вывеска", "плакат", "постер", "реклама", "упаковка",
+    "этикетка", "афиша", "книга", "журнал", "газета", "меню",
+    "билет", "конверт", "марка", "открытка", "календарь", "игрушка",
+    "телефон", "радиоприемник", "фотоаппарат", "телевизор", "холодильник",
+    "тостер", "часы", "весы", "лампа", "стул", "кресло", "стол",
+    "диван", "шкаф", "зеркало", "ковер", "посуда", "приборы",
+    "инструменты", "велосипед", "автомобиль", "мотоцикл", "трамвай",
+    "поезд", "самолет", "корабль", "здание", "интерьер"
+]
+
+BRANDS = [
+    "Apple", "Nike", "Coca-Cola", "FedEx", "McDonald's", "Chanel",
+    "Volkswagen", "IBM", "Mercedes-Benz", "Starbucks", "Shell",
+    "Adidas", "Puma", "BMW", "Ford", "Levi's", "Rolex", "Kodak",
+    "Disney", "MTV", "NASA", "Toyota", "Sony", "Philips", "Braun",
+    "Boeing", "Airbus", "IKEA", "Lego", "Ferrari", "Lamborghini",
+    "Porsche", "Tesla", "Samsung", "Huawei", "Google", "Microsoft",
+    "Netflix", "Spotify"
+]
+
+# ----- КОНЕЦ СПИСКОВ -----
 
 def load_published():
     try:
@@ -66,78 +79,108 @@ def load_published():
 def save_published(articles):
     try:
         with open(PUBLISHED_FILE, "w") as f:
-            json.dump(articles[-100:], f)
+            json.dump(articles[-2000:], f)  # храним последние 2000, чтобы не переполнять файл
         logger.info(f"✅ Сохранено {len(articles)} тем")
     except Exception as e:
         logger.error(f"Ошибка сохранения: {e}")
 
+def generate_topic():
+    """Генерирует случайную уникальную тему из комбинаций"""
+    era = random.choice(ERAS)
+    style = random.choice(STYLES)
+    obj = random.choice(OBJECTS)
+    brand = random.choice(BRANDS)
+    # Разные шаблоны для разнообразия
+    templates = [
+        f"{style} {obj} {brand}",
+        f"{brand} {obj} {era}",
+        f"ретро {obj} {brand}",
+        f"{era} {style} {obj}",
+        f"{brand} ретро {obj}",
+        f"{style} ретро {obj}",
+        f"старый {obj} {brand}",
+        f"винтажный {obj} {brand}",
+        f"{brand} {obj} ретро"
+    ]
+    topic = random.choice(templates)
+    # Приводим к нижнему регистру и убираем лишние пробелы
+    topic = ' '.join(topic.split()).lower()
+    return topic
+
+def get_unique_topic(published):
+    """Генерирует новую тему, которой нет в списке published"""
+    attempts = 0
+    max_attempts = 1000  # защита от бесконечного цикла
+    while attempts < max_attempts:
+        topic = generate_topic()
+        if topic not in published:
+            return topic
+        attempts += 1
+    # Если все комбинации исчерпаны (маловероятно), сбрасываем историю
+    logger.warning("⚠️ Все комбинации исчерпаны? Сбрасываем историю.")
+    save_published([])
+    return generate_topic()
+
 def escape_md(text):
-    """Экранируем только критичные символы (скобки и тильду не трогаем)"""
-    chars = r'_*#+-=|{}>'  # убрал () и ~
+    chars = r'_*#+-=|{}>'
     return ''.join('\\' + c if c in chars else c for c in text)
 
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def search_pexels(query):
-    """Улучшенный поиск: несколько запросов, фильтр по alt"""
     if not PEXELS_API_KEY:
         logger.warning("⚠️ Pexels API ключ не настроен!")
         return None
 
-    # Формируем список запросов
-    queries = [query]
     eng = extract_english_words(query)
+    base = ' '.join(eng) if eng else query
+    queries = [query]
     if eng:
-        base = ' '.join(eng)
-        queries.append(base)  # только английские слова
-        # Добавляем уточняющие слова в зависимости от темы
-        if any(word in query for word in ['логотип', 'logo']):
+        queries.append(base)
+        if any(w in query.lower() for w in ['логотип', 'logo']):
             queries.append(f"{base} logo")
-        if any(word in query for word in ['плакат', 'poster']):
+        if any(w in query.lower() for w in ['плакат', 'постер', 'poster']):
             queries.append(f"{base} poster")
-        if any(word in query for word in ['стул', 'кресло', 'chair']):
+            queries.append(f"vintage {base} poster")
+        if any(w in query.lower() for w in ['стул', 'кресло', 'chair']):
             queries.append(f"{base} chair")
-        if any(word in query for word in ['шрифт', 'font']):
+        if any(w in query.lower() for w in ['шрифт', 'font']):
             queries.append(f"{base} font")
-    queries = list(dict.fromkeys(queries))  # убираем дубли
+        if any(w in query.lower() for w in ['автомобиль', 'car']):
+            queries.append(f"vintage {base} car")
+        if any(w in query.lower() for w in ['вывеска', 'sign']):
+            queries.append(f"vintage {base} sign")
+        queries.append(f"vintage {base}")
+        queries.append(f"retro {base}")
+    queries = list(dict.fromkeys(queries))
 
     for q in queries:
         try:
             logger.info(f"🔍 Ищем на Pexels: {q}")
             url = "https://api.pexels.com/v1/search"
             headers = {"Authorization": PEXELS_API_KEY}
-            params = {
-                "query": q,
-                "per_page": 5,      # берём несколько
-                "orientation": "landscape",
-                "size": "large"
-            }
+            params = {"query": q, "per_page": 5, "orientation": "landscape", "size": "large"}
             response = requests.get(url, headers=headers, params=params, timeout=10)
             if response.status_code != 200:
-                logger.warning(f"Pexels ошибка: {response.status_code} для '{q}'")
                 continue
             data = response.json()
             if not data.get("photos"):
                 continue
-
-            # Проверяем каждое фото на релевантность по alt
             for photo in data["photos"]:
                 alt = photo.get("alt", "").lower()
-                # Если alt содержит ключевые слова из запроса – считаем релевантным
                 words = q.lower().split()
                 if any(word in alt for word in words):
                     photo_url = photo["src"]["large"]
-                    logger.info(f"✅ Релевантное фото: {photo_url} (alt: {alt})")
+                    logger.info(f"✅ Релевантное фото: {photo_url}")
                     return photo_url
-            # Если ни одно не подошло по alt, берём первое
             photo_url = data["photos"][0]["src"]["large"]
-            logger.info(f"✅ Найдено фото (первое): {photo_url}")
+            logger.info(f"✅ Найдено фото: {photo_url}")
             return photo_url
         except Exception as e:
-            logger.error(f"Pexels exception: {e}")
+            logger.error(f"Pexels exception для '{q}': {e}")
 
-    logger.warning("❌ Не найдено фото ни по одному запросу")
+    logger.warning("❌ Не найдено фото")
     return None
 
 def generate_story(topic):
@@ -158,18 +201,12 @@ def generate_story(topic):
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
             headers={"Authorization": f"Bearer {POLZA_API_KEY}", "Content-Type": "application/json"},
-            json={
-                "model": MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.9,
-                "max_tokens": 1100
-            },
+            json={"model": MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.9, "max_tokens": 1100},
             timeout=90
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
-            # Жёстко удаляем все слеши
             story = re.sub(r'\\+', '', story)
             return story
         else:
@@ -204,39 +241,28 @@ def truncate_to_sentence(text, max_len):
             return ensure_complete(truncated + '...')
 
 def publish_to_channel(text, image_url):
-    # Ещё раз удаляем слеши
     text = re.sub(r'\\+', '', text)
-
     if image_url:
         try:
-            logger.info(f"📥 Скачиваем изображение: {image_url}")
+            logger.info(f"📥 Скачиваем: {image_url}")
             headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
             img_response = requests.get(image_url, headers=headers, timeout=30)
-            if img_response.status_code != 200:
-                logger.warning(f"Не удалось скачать, статус {img_response.status_code}")
-                image_url = None
-            else:
+            if img_response.status_code == 200:
                 img_data = img_response.content
-                file_size = len(img_data)
-                if file_size > 20 * 1024 * 1024:
-                    logger.warning(f"Слишком большое: {file_size} байт")
-                    image_url = None
-                else:
+                if len(img_data) <= 20 * 1024 * 1024:
                     caption = escape_md(text[:1024])
                     files = {'photo': ('image.jpg', img_data)}
                     data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
                     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
                     if resp.status_code == 200:
-                        logger.info("✅ Пост с картинкой опубликован")
+                        logger.info("✅ Пост с картинкой")
                         return True
-                    else:
-                        logger.error(f"Telegram error: {resp.status_code}")
-                        image_url = None
+            logger.warning("Не удалось отправить фото, публикуем текст")
+            image_url = None
         except Exception as e:
             logger.error(f"Image error: {e}")
             image_url = None
 
-    # Только текст
     safe_text = escape_md(truncate_to_sentence(text, 4096))
     payload = {'chat_id': CHANNEL_ID, 'text': safe_text, 'parse_mode': 'Markdown'}
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
@@ -250,50 +276,48 @@ def publish_to_channel(text, image_url):
 def create_and_publish():
     logger.info("=" * 40)
     logger.info("🚀 Генерация нового поста")
-    
     published = load_published()
-    available = [t for t in TOPICS if t not in published]
-    if not available:
-        save_published([])
-        available = TOPICS.copy()
-        logger.info("📂 Все темы использованы, сброс")
-    
-    random.shuffle(available)
-    chosen_topic = None
-    image_url = None
-    
-    for topic in available:
-        logger.info(f"🔍 Проверяем тему: {topic}")
-        img = search_pexels(topic)
-        if img:
-            chosen_topic = topic
-            image_url = img
-            logger.info(f"✅ Для '{topic}' найдена картинка")
-            break
-        else:
-            logger.info(f"⏭️ Для '{topic}' картинки нет, пробуем следующую")
-    
-    if not chosen_topic:
-        chosen_topic = available[0]
-        logger.warning(f"⚠️ Ни для одной темы нет картинки, берём '{chosen_topic}' без фото")
-        image_url = None
-    
-    logger.info(f"📌 Генерируем историю для: {chosen_topic}")
-    story = generate_story(chosen_topic)
+    # Если использовано больше 2000 тем – сбрасываем историю (чтобы не переполнять память)
+    if len(published) > 1900:
+        logger.info("📂 Использовано более 1900 тем, частичная очистка истории")
+        save_published(published[-1000:])  # оставляем последние 1000
+        published = load_published()
+
+    # Генерируем уникальную тему
+    topic = get_unique_topic(published)
+    logger.info(f"📌 Сгенерирована тема: {topic}")
+
+    # Ищем картинку
+    image_url = search_pexels(topic)
+    if not image_url:
+        # Если не нашлось, пробуем ещё пару раз с другим запросом
+        alt_topic = generate_topic()
+        logger.info(f"🔁 Пробуем альтернативную тему: {alt_topic}")
+        image_url = search_pexels(alt_topic)
+        if image_url:
+            topic = alt_topic
+            logger.info(f"✅ Для альтернативной темы '{topic}' найдена картинка")
+
+    # Если всё равно нет картинки – публикуем без картинки
+    if not image_url:
+        logger.warning(f"⚠️ Для темы '{topic}' картинка не найдена, публикуем без фото")
+
+    # Генерируем историю
+    story = generate_story(topic)
     if not story:
         logger.error("❌ История не сгенерирована")
         return False
-    
+
     header = "📐 **Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     story_cut = truncate_to_sentence(story, 800)
     full_text = header + story_cut + footer
-    
+
     success = publish_to_channel(full_text, image_url)
     if success:
-        published.append(chosen_topic)
+        published.append(topic)
         save_published(published)
-        logger.info(f"✅ Пост опубликован (тема: {chosen_topic})")
+        logger.info(f"✅ Пост опубликован (тема: {topic})")
         return True
     else:
         logger.error("❌ Ошибка публикации")
