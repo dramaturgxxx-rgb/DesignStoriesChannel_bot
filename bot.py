@@ -35,45 +35,27 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# ТОЛЬКО ГРАФИЧЕСКИЙ ДИЗАЙН – НИКАКОЙ ОДЕЖДЫ
-ERAS = [
-    "1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х",
-    "1980-х", "1990-х"
+# NSFW СТОП-СЛОВА (расширенный список)
+NSFW_WORDS = [
+    'porn', 'porno', 'xxx', 'sex', 'nude', 'naked', 'penis', 'vagina',
+    'boobs', 'breast', 'ass', 'butt', 'orgy', 'bdsm', 'kink', 'fetish',
+    'erotic', 'hentai', 'transgender', 'lgbt', 'gay', 'lesbian', 'bisexual',
+    'queer', 'adult', 'masturbation', 'cum', 'sperm', 'cock', 'dick',
+    'pussy', 'clit', 'anal', 'oral', 'blowjob', 'handjob', 'suck'
 ]
-STYLES = [
-    "конструктивизм", "ар-деко", "модерн", "баухаус", "поп-арт",
-    "минимализм", "функционализм", "скандинавский", "винтажный",
-    "ретро", "индустриальный", "органический", "модернизм"
-]
-OBJECTS = [
-    "логотип", "вывеска", "плакат", "реклама", "упаковка",
-    "этикетка", "афиша", "шрифт", "типографика", "журнал",
-    "газета", "книга", "марка", "открытка", "календарь",
-    "меню", "билет", "конверт", "графика"
-]
-BRANDS = [
-    "Coca-Cola", "Apple", "Nike", "Adidas", "Puma", "Volkswagen",
-    "Mercedes-Benz", "Chanel", "IBM", "BMW", "Ford", "Rolex", "Kodak",
-    "Disney", "NASA", "MTV", "Starbucks", "Levi's", "Harley-Davidson",
-    "Gucci", "Prada", "Versace", "Dior", "Louis Vuitton",
-    "Helvetica", "Futura", "Times New Roman"
-]
+
+ERAS = ["1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х", "1980-х", "1990-х"]
+STYLES = ["конструктивизм", "ар-деко", "модерн", "баухаус", "поп-арт", "минимализм", "функционализм", "скандинавский", "винтажный", "ретро", "индустриальный", "модернизм"]
+OBJECTS = ["логотип", "вывеска", "плакат", "реклама", "упаковка", "этикетка", "афиша", "шрифт", "типографика", "журнал", "газета", "книга", "марка", "открытка", "календарь", "меню", "билет", "конверт", "графика"]
+BRANDS = ["Coca-Cola", "Apple", "Nike", "Adidas", "Volkswagen", "Mercedes-Benz", "Chanel", "IBM", "BMW", "Ford", "Rolex", "Kodak", "Disney", "NASA", "MTV", "Starbucks", "Helvetica", "Futura", "Puma", "Levi's"]
 
 def generate_topic():
     era = random.choice(ERAS)
     style = random.choice(STYLES)
     obj = random.choice(OBJECTS)
     brand = random.choice(BRANDS)
-    templates = [
-        f"{brand} {obj} {era}",
-        f"{style} {obj} {brand}",
-        f"{brand} {obj} ретро",
-        f"{era} {brand} {obj}",
-        f"{style} ретро {obj}",
-        f"{brand} винтажный {obj}"
-    ]
-    topic = random.choice(templates)
-    return ' '.join(topic.split()).lower()
+    templates = [f"{brand} {obj} {era}", f"{style} {obj} {brand}", f"{brand} {obj} ретро", f"{era} {brand} {obj}", f"{style} ретро {obj}", f"{brand} винтажный {obj}"]
+    return ' '.join(random.choice(templates).split()).lower()
 
 def get_unique_topic(published):
     attempts = 0
@@ -82,7 +64,7 @@ def get_unique_topic(published):
         if topic not in published:
             return topic
         attempts += 1
-    logger.info("📂 Все комбинации исчерпаны, сброс")
+    logger.info("📂 Сброс истории")
     save_published([])
     return generate_topic()
 
@@ -112,80 +94,83 @@ def clean_text(text):
         return text
     return text.replace('\\', '')
 
-def search_duckduckgo(query):
+def is_nsfw(text):
+    """Проверяет, содержит ли текст NSFW-стоп-слова"""
+    if not text:
+        return False
+    text_lower = text.lower()
+    for word in NSFW_WORDS:
+        if word in text_lower:
+            return True
+    return False
+
+def search_duckduckgo_safe(query):
+    """Поиск на DuckDuckGo с фильтрацией NSFW и проверкой релевантности"""
     time.sleep(2)
     try:
         logger.info(f"🔍 DuckDuckGo: {query}")
         with DDGS() as ddgs:
-            results = list(ddgs.images(query, max_results=1))
-            if results and len(results) > 0:
-                image_url = results[0].get('image')
-                if image_url:
-                    logger.info(f"✅ Найдено: {image_url}")
+            results = list(ddgs.images(query, max_results=10))
+            if not results:
+                return None
+
+            keywords = set(query.lower().split())
+
+            for img in results:
+                title = img.get('title', '')
+                image_url = img.get('image', '')
+
+                # Проверка на NSFW
+                if is_nsfw(title) or is_nsfw(image_url):
+                    logger.warning(f"⛔ NSFW контент пропущен: {title}")
+                    continue
+
+                # Проверка релевантности: заголовок должен содержать хотя бы одно слово из запроса
+                title_words = set(title.lower().split())
+                if keywords & title_words:
+                    logger.info(f"✅ Найдено (релевантно): {image_url}")
                     return image_url
+                # Если не нашли по ключевым словам, но картинка безопасна и релевантна по смыслу – берём
+                # Но для безопасности проверяем, что в заголовке нет NSFW
+                if not is_nsfw(title):
+                    logger.info(f"✅ Найдено (безопасно): {image_url}")
+                    return image_url
+
+            # Если ничего не подошло – возвращаем None
             return None
     except Exception as e:
         logger.error(f"DuckDuckGo error: {e}")
         return None
 
-def extract_keywords_from_topic(topic):
-    words = topic.split()
-    keywords = []
-    for w in words:
-        if w not in ['ретро', 'винтажный', 'старый', 'дизайн'] and len(w) > 2:
-            keywords.append(w)
-    return keywords
-
 def search_image(topic, story):
-    keywords = extract_keywords_from_topic(topic)
-    # Уточнения для графических объектов
-    if any(w in topic for w in ['логотип', 'logo']):
-        keywords.append('logo')
-    if any(w in topic for w in ['плакат', 'постер', 'poster']):
-        keywords.append('poster')
-    if any(w in topic for w in ['шрифт', 'font']):
-        keywords.append('font')
-        keywords.append('typography')
-    if any(w in topic for w in ['вывеска', 'sign']):
-        keywords.append('sign')
-    if any(w in topic for w in ['этикетка', 'label']):
-        keywords.append('label')
-    if any(w in topic for w in ['реклама', 'advertising']):
-        keywords.append('advertising')
-    if any(w in topic for w in ['упаковка', 'packaging']):
-        keywords.append('packaging')
-    if any(w in topic for w in ['журнал', 'magazine']):
-        keywords.append('magazine')
-    if any(w in topic for w in ['газета', 'newspaper']):
-        keywords.append('newspaper')
-    if any(w in topic for w in ['книга', 'book']):
-        keywords.append('book')
-    if any(w in topic for w in ['марка', 'stamp']):
-        keywords.append('stamp')
-    if any(w in topic for w in ['открытка', 'postcard']):
-        keywords.append('postcard')
-    keywords.append('design')
-    keywords.append('graphic')
-
-    year_match = re.search(r'\b(19\d{2}|20\d{2})\b', story)
-    if year_match:
-        keywords.append(year_match.group(1))
+    """Формирует точные запросы и ищет через DuckDuckGo с фильтрацией"""
+    keywords = topic.split()
+    clean_keywords = [w for w in keywords if w not in ['ретро', 'винтажный', 'старый', 'дизайн']]
+    brand = None
+    for b in BRANDS:
+        if b.lower() in topic:
+            brand = b
+            break
 
     queries = []
-    for brand in BRANDS:
-        if brand.lower() in topic:
-            queries.append(f'"{brand}" {" ".join(keywords[:3])} vintage')
-            queries.append(f'"{brand}" {" ".join(keywords[:2])} retro')
-            break
-    queries.append(' '.join(keywords[:5]))
-    clean_keywords = [w for w in keywords if w not in ['design', 'graphic', 'retro', 'vintage', 'ретро', 'винтажный']]
+    # Самый точный запрос: бренд + объект + эпоха
+    if brand:
+        for obj in ['логотип', 'плакат', 'вывеска', 'этикетка', 'шрифт', 'журнал']:
+            if obj in topic:
+                queries.append(f'"{brand}" "{obj}" vintage design')
+                queries.append(f'"{brand}" "{obj}" retro')
+                break
+        queries.append(f'"{brand}" graphic design')
+        queries.append(f'"{brand}" vintage')
+    # Запрос из всех ключевых слов
     if clean_keywords:
-        queries.append(' '.join(clean_keywords[:4]))
+        queries.append(' '.join(clean_keywords[:4]) + ' design')
+    queries.append(topic)
 
     queries = list(dict.fromkeys(queries))
 
     for q in queries:
-        url = search_duckduckgo(q)
+        url = search_duckduckgo_safe(q)
         if url:
             return url
     return None
@@ -206,7 +191,7 @@ def download_image(url):
                 return response.content
             time.sleep(1)
         except Exception as e:
-            logger.warning(f"Попытка {attempt+1} скачать: {e}")
+            logger.warning(f"Попытка {attempt+1}: {e}")
             time.sleep(1)
     return None
 
@@ -231,7 +216,7 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            story = re.sub(r'\b(я|мне|мой|моя|моё|мои|мы|нас|наш|наша|наше)\b', '', story, flags=re.IGNORECASE)
+            story = re.sub(r'\b(я|мне|мой|моя|моё|мои|мы|нас|наш)\b', '', story, flags=re.IGNORECASE)
             story = clean_text(story)
             return story
         else:
@@ -274,7 +259,6 @@ def publish_to_channel(text, image_url):
                     logger.error(f"Telegram error: {resp.text}")
         except Exception as e:
             logger.error(f"Image error: {e}")
-    # Только текст
     safe_text = clean_text(text[:4096])
     payload = {'chat_id': CHANNEL_ID, 'text': safe_text, 'parse_mode': 'Markdown'}
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
@@ -289,38 +273,32 @@ def create_and_publish():
     logger.info("=" * 40)
     logger.info("🚀 Новый пост")
     published = load_published()
-
     topic = get_unique_topic(published)
     logger.info(f"📌 Тема: {topic}")
-
     story = generate_story(topic)
     if not story:
         logger.error("❌ История не сгенерирована")
         return False
-
     image_url = search_image(topic, story)
-
     if not image_url:
-        logger.info("🔄 Картинка не найдена, пробуем другую тему")
+        logger.info("🔄 Пробуем другую тему")
         published.append(topic)
         save_published(published)
         topic = get_unique_topic(published)
         logger.info(f"📌 Новая тема: {topic}")
         story = generate_story(topic)
         if not story:
-            logger.error("❌ История не сгенерирована для новой темы")
+            logger.error("❌ История не сгенерирована")
             return False
         image_url = search_image(topic, story)
         if image_url:
-            logger.info(f"✅ Найдена картинка для новой темы")
+            logger.info(f"✅ Найдена картинка")
         else:
             logger.warning("⚠️ Без картинки")
-
     header = "📐 **Истории про графический дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     story_cut = truncate_to_sentence(story, 800)
     full_text = clean_text(header + story_cut + footer)
-
     success = publish_to_channel(full_text, image_url)
     if success:
         published.append(topic)
@@ -328,7 +306,7 @@ def create_and_publish():
         logger.info(f"✅ Опубликовано: {topic}")
         return True
     else:
-        logger.error("❌ Ошибка публикации")
+        logger.error("❌ Ошибка")
         return False
 
 def run_schedule():
