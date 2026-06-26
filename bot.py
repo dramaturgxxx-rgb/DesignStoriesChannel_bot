@@ -44,34 +44,42 @@ NSFW_WORDS = [
     'pussy', 'clit', 'anal', 'oral', 'blowjob', 'handjob', 'suck'
 ]
 
-# УПРОЩЁННЫЕ СПИСКИ (без эпох и стилей, только объекты и бренды)
-OBJECTS = [
-    "логотип", "вывеска", "плакат", "реклама", "упаковка",
-    "этикетка", "афиша", "шрифт", "типографика", "журнал",
-    "газета", "книга", "марка", "открытка", "календарь",
-    "меню", "билет", "конверт", "графика"
+# УПРОЩЁННЫЕ СПИСКИ (только узнаваемые и популярные темы)
+STYLES = [
+    "баухаус", "ар-деко", "конструктивизм", "ар-нуво",
+    "поп-арт", "модерн", "функционализм", "минимализм"
 ]
 BRANDS = [
-    "Coca-Cola", "Apple", "Nike", "Adidas", "Volkswagen",
-    "Mercedes-Benz", "Chanel", "IBM", "BMW", "Ford", "Rolex",
-    "Kodak", "Disney", "NASA", "MTV", "Starbucks", "Helvetica",
-    "Futura", "Puma", "Levi's", "Harley-Davidson"
+    "Coca-Cola", "Apple", "Nike", "Adidas", "Chanel",
+    "Volkswagen", "IBM", "Mercedes-Benz", "Rolex",
+    "Kodak", "Disney", "NASA", "MTV", "Starbucks"
 ]
-STYLES = [
-    "конструктивизм", "ар-деко", "модерн", "баухаус",
-    "поп-арт", "минимализм", "функционализм", "скандинавский"
+DESIGNERS = [
+    "Малевич", "Родченко", "Тулуз-Лотрек", "Муха",
+    "Эймс", "Дитер Рамс", "Лёва", "Гропиус"
+]
+OBJECTS = [
+    "логотип", "плакат", "шрифт", "вывеска",
+    "реклама", "упаковка", "этикетка", "афиша"
 ]
 
 def generate_topic():
-    """Генерирует короткую тему (только бренд + объект или стиль + объект)"""
-    if random.random() < 0.7:  # 70% – бренд + объект
-        brand = random.choice(BRANDS)
-        obj = random.choice(OBJECTS)
-        return f"{brand} {obj}".lower()
-    else:  # 30% – стиль + объект
+    """Генерирует простую тему из 2–3 слов"""
+    # 40% – стиль + объект (например, "баухаус плакат")
+    if random.random() < 0.4:
         style = random.choice(STYLES)
         obj = random.choice(OBJECTS)
         return f"{style} {obj}".lower()
+    # 30% – бренд + объект (например, "логотип Coca-Cola")
+    elif random.random() < 0.7:
+        brand = random.choice(BRANDS)
+        obj = random.choice(OBJECTS)
+        return f"{obj} {brand}".lower()
+    # 30% – дизайнер + стиль (например, "Малевич конструктивизм")
+    else:
+        designer = random.choice(DESIGNERS)
+        style = random.choice(STYLES)
+        return f"{designer} {style}".lower()
 
 def get_unique_topic(published):
     attempts = 0
@@ -120,8 +128,8 @@ def is_nsfw(text):
     return False
 
 def search_duckduckgo_safe(query):
-    """Поиск с фильтрацией NSFW и проверкой релевантности"""
-    time.sleep(1.5)  # небольшая задержка
+    """Поиск с фильтрацией NSFW"""
+    time.sleep(1.5)
     try:
         logger.info(f"🔍 DuckDuckGo: {query}")
         with DDGS() as ddgs:
@@ -138,12 +146,10 @@ def search_duckduckgo_safe(query):
                 if is_nsfw(title) or is_nsfw(image_url):
                     continue
 
-                # Проверяем, что в заголовке есть хотя бы одно слово из запроса
                 title_words = set(title.lower().split())
                 if keywords & title_words:
                     logger.info(f"✅ Релевантно: {image_url}")
                     return image_url
-                # Если нет точного совпадения, но картинка безопасна и выглядит подходящей – берём
                 if not is_nsfw(title):
                     logger.info(f"✅ Безопасно: {image_url}")
                     return image_url
@@ -153,58 +159,17 @@ def search_duckduckgo_safe(query):
         return None
 
 def search_image(topic):
-    """Формирует несколько запросов для одной темы (англ. и рус.)"""
-    # Определяем, есть ли в теме бренд
-    brand = None
-    for b in BRANDS:
-        if b.lower() in topic:
-            brand = b
-            break
-
-    # Извлекаем объект (логотип, плакат и т.д.)
-    obj = None
-    for o in OBJECTS:
-        if o in topic:
-            obj = o
-            break
-
-    # Базовые запросы
-    queries = []
-
-    # 1. Если есть бренд и объект – самый точный запрос
-    if brand and obj:
-        queries.append(f'"{brand}" "{obj}" vintage')
-        queries.append(f'"{brand}" "{obj}" retro')
-        queries.append(f'"{brand}" "{obj}" design')
-        # Английская версия для популярных объектов
-        eng_obj_map = {
-            "логотип": "logo",
-            "плакат": "poster",
-            "вывеска": "sign",
-            "шрифт": "font",
-            "типографика": "typography",
-            "журнал": "magazine",
-            "газета": "newspaper",
-            "этикетка": "label",
-            "реклама": "advertisement",
-            "упаковка": "packaging"
-        }
-        if obj in eng_obj_map:
-            eng_obj = eng_obj_map[obj]
-            queries.append(f'"{brand}" "{eng_obj}" vintage')
-            queries.append(f'"{brand}" "{eng_obj}" retro')
-    # 2. Только бренд + общие слова
-    if brand:
-        queries.append(f'"{brand}" vintage design')
-        queries.append(f'"{brand}" retro graphic')
-    # 3. Только объект + стиль
-    if obj:
-        queries.append(f'"{obj}" vintage design')
-        queries.append(f'"{obj}" retro')
-    # 4. Оригинальная тема
-    queries.append(topic)
-
-    # Убираем дубли
+    """Формирует 2–3 простых запроса на основе темы"""
+    # Просто используем тему как есть
+    queries = [topic]
+    # Если тема содержит слово "плакат" – добавим "poster" для английского
+    if "плакат" in topic:
+        queries.append(topic.replace("плакат", "poster"))
+    # Если тема содержит "логотип" – добавим "logo"
+    if "логотип" in topic:
+        queries.append(topic.replace("логотип", "logo"))
+    # Добавим вариант с "vintage" или "design"
+    queries.append(topic + " design")
     queries = list(dict.fromkeys(queries))
 
     for q in queries:
@@ -234,13 +199,14 @@ def download_image(url):
     return None
 
 def generate_story(topic):
-    prompt = f"""Ты — историк графического дизайна. Напиши короткую, интересную историю на тему: {topic}.
+    prompt = f"""Ты — историк дизайна. Напиши короткую, увлекательную историю на тему: {topic}.
 
 Важные требования:
 - Объём: ровно 700–800 символов.
-- Заголовок — **жирным**.
-- Пиши живым, разговорным языком, но **от третьего лица** (не используй "я", "мне", "мой", "мы").
-- НЕ ИСПОЛЬЗУЙ обратную косую черту (\).
+- Заголовок — **жирным** (интригующий, с лёгкой улыбкой).
+- Пиши живым, разговорным языком, с долей юмора и иронии, но без пошлости.
+- Излагай от третьего лица (не используй "я", "мне", "мой", "мы").
+- НЕ используй обратную косую черту (\).
 
 Тема: {topic}
 
@@ -333,10 +299,11 @@ def create_and_publish():
             logger.info(f"✅ Найдена картинка")
         else:
             logger.warning("⚠️ Без картинки")
-    header = "📐 **Истории про графический дизайн**\n\n"
+    header = "**Истории про дизайн**\n\n"
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     story_cut = truncate_to_sentence(story, 800)
     full_text = clean_text(header + story_cut + footer)
+
     success = publish_to_channel(full_text, image_url)
     if success:
         published.append(topic)
@@ -371,5 +338,5 @@ def run_schedule():
             create_and_publish()
 
 if __name__ == "__main__":
-    logger.info("📐 ИСТОРИИ ПРО ГРАФИЧЕСКИЙ ДИЗАЙН — ЗАПУСК")
+    logger.info("📐 ИСТОРИИ ПРО ДИЗАЙН — ЗАПУСК")
     run_schedule()
