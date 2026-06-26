@@ -61,26 +61,25 @@ def save_published(articles):
         json.dump(articles[-100:], f)
 
 def escape_md(text):
-    """Экранирует спецсимволы для Markdown (кроме точки и !)"""
-    chars = r'_*[]()~`>#+-=|{}'  # точка и ! удалены
+    chars = r'_*[]()~`>#+-=|{}'
     return ''.join('\\' + c if c in chars else c for c in text)
 
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def search_wikimedia(query):
-    """Ищем только логотипы/эмблемы/символы"""
+    """Улучшенный поиск: без жёсткого фильтра на logo, ищем по релевантности"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     eng_words = extract_english_words(query)
     if not eng_words:
         eng_words = [query]
     
+    # Список категорий для разных типов контента
+    categories = ["Logos", "Posters", "Design", "Advertising", "Furniture", "Typography", "Chairs", "Architecture"]
     queries = []
     base = ' '.join(eng_words)
-    queries.append(f'"{base}" incategory:"Logos"')
-    queries.append(f'"{base}" incategory:"Posters"')
-    queries.append(f'"{base}" incategory:"Design"')
-    queries.append(f'"{base}" incategory:"Advertising"')
+    for cat in categories:
+        queries.append(f'"{base}" incategory:"{cat}"')
     queries.append(base)
     queries = list(dict.fromkeys(queries))
     
@@ -107,9 +106,7 @@ def search_wikimedia(query):
             for result in data["query"]["search"]:
                 title = result["title"]
                 title_lower = title.lower()
-                # Проверяем, что это логотип или эмблема
-                if not any(word in title_lower for word in ['logo', 'emblem', 'symbol', 'mark', 'sign']):
-                    continue
+                # Проверяем наличие ключевых слов в заголовке
                 if not any(word.lower() in title_lower for word in eng_words):
                     continue
                 
@@ -134,16 +131,15 @@ def search_wikimedia(query):
                     if desc:
                         desc_lower = desc.lower()
                         if any(word.lower() in desc_lower for word in eng_words):
-                            logger.info(f"✅ Найдено релевантное изображение (логотип): {url}")
+                            logger.info(f"✅ Найдено релевантное изображение: {url}")
                             return url
                     else:
-                        # Если описания нет, но заголовок содержит logo/emblem – берём
-                        logger.info(f"✅ Найдено изображение-логотип (без описания): {url}")
+                        logger.info(f"✅ Найдено изображение (без описания): {url}")
                         return url
         except Exception as e:
             logger.error(f"Ошибка при поиске '{q}': {e}")
     
-    logger.warning("❌ Подходящее изображение-логотип не найдено")
+    logger.warning("❌ Подходящее изображение не найдено")
     return None
 
 def generate_story(topic):
@@ -155,6 +151,7 @@ def generate_story(topic):
 - Не обрывай повествование на полуслове — обязательно заверши мысль.
 - Заголовок — интригующий (выдели его **жирным** в самом тексте).
 - Пиши живым, разговорным языком.
+- Не используй обратные слеши (\\) в тексте.
 
 Тема: {topic}
 
@@ -174,6 +171,8 @@ def generate_story(topic):
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
+            # Удаляем все обратные слеши (модель иногда их ставит)
+            story = story.replace('\\', '')
             return story
         else:
             logger.error(f"Polza error: {response.status_code}")
@@ -207,7 +206,7 @@ def truncate_to_sentence(text, max_len):
             return ensure_complete(truncated + '...')
 
 def publish_to_channel(text, image_url):
-    # Удаляем все обратные слеши из текста (они не нужны)
+    # Удаляем все обратные слеши из текста (на всякий случай)
     text = text.replace('\\', '')
     
     if image_url:
@@ -227,7 +226,6 @@ def publish_to_channel(text, image_url):
                     image_url = None
                 else:
                     caption = escape_md(text[:1024])
-                    # Если файл больше 5 МБ, отправляем как документ (лимит 50 МБ)
                     if file_size > 5 * 1024 * 1024:
                         logger.info("Файл >5 МБ, отправляем как документ")
                         files = {'document': ('image.jpg', img_data)}
@@ -302,6 +300,7 @@ def create_and_publish():
         logger.warning(f"⚠️ Ни для одной темы не найдена картинка, берём '{chosen_topic}' без картинки")
         image_url = None
     
+    # Генерируем историю
     logger.info(f"📌 Генерируем историю для: {chosen_topic}")
     story = generate_story(chosen_topic)
     if not story:
@@ -316,6 +315,7 @@ def create_and_publish():
     
     success = publish_to_channel(full_text, image_url)
     if success:
+        # Добавляем тему в использованные, даже если картинки не было (чтобы не повторять)
         published.append(chosen_topic)
         save_published(published)
         logger.info(f"✅ Пост опубликован (тема: {chosen_topic})")
