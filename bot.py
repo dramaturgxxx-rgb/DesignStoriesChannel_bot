@@ -14,17 +14,12 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "8775611192:AAFsC5xlkQX9ijC8vQd6OEjgdWxQpEAOjMQ"
 CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
-
-# ====== ВАШ PEXELS API КЛЮЧ (уже вставлен) ======
 PEXELS_API_KEY = "DCFvixZFiwgT06gaGJr4YIqkcTHJnyhgeixlcSZW3pdnODo3Zq5QNexn"
-# ================================================
-
 MODEL = "deepseek/deepseek-v4-flash"
 
 TEST_MODE = True
 TEST_INTERVAL = 60
 
-# Путь к файлу с использованными темами (в /app/data, как у вас на сервере)
 PUBLISHED_FILE = "/app/data/published_design.json"
 os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
@@ -77,35 +72,73 @@ def save_published(articles):
         logger.error(f"Ошибка сохранения: {e}")
 
 def escape_md(text):
-    chars = r'_*[]()~`>#+-=|{}'
+    """Экранируем только критичные символы (скобки и тильду не трогаем)"""
+    chars = r'_*#+-=|{}>'  # убрал () и ~
     return ''.join('\\' + c if c in chars else c for c in text)
 
+def extract_english_words(text):
+    return re.findall(r'[A-Za-z0-9]+', text)
+
 def search_pexels(query):
-    """Ищет изображение на Pexels по запросу"""
-    try:
-        url = "https://api.pexels.com/v1/search"
-        headers = {"Authorization": PEXELS_API_KEY}
-        params = {
-            "query": query,
-            "per_page": 1,
-            "orientation": "landscape"
-        }
-        response = requests.get(url, headers=headers, params=params, timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("photos") and len(data["photos"]) > 0:
-                photo_url = data["photos"][0]["src"]["large"]
-                logger.info(f"✅ Найдено на Pexels: {photo_url}")
-                return photo_url
-            else:
-                logger.warning(f"❌ Нет фото для '{query}'")
-                return None
-        else:
-            logger.error(f"Pexels ошибка: {response.status_code}")
-            return None
-    except Exception as e:
-        logger.error(f"Pexels exception: {e}")
+    """Улучшенный поиск: несколько запросов, фильтр по alt"""
+    if not PEXELS_API_KEY:
+        logger.warning("⚠️ Pexels API ключ не настроен!")
         return None
+
+    # Формируем список запросов
+    queries = [query]
+    eng = extract_english_words(query)
+    if eng:
+        base = ' '.join(eng)
+        queries.append(base)  # только английские слова
+        # Добавляем уточняющие слова в зависимости от темы
+        if any(word in query for word in ['логотип', 'logo']):
+            queries.append(f"{base} logo")
+        if any(word in query for word in ['плакат', 'poster']):
+            queries.append(f"{base} poster")
+        if any(word in query for word in ['стул', 'кресло', 'chair']):
+            queries.append(f"{base} chair")
+        if any(word in query for word in ['шрифт', 'font']):
+            queries.append(f"{base} font")
+    queries = list(dict.fromkeys(queries))  # убираем дубли
+
+    for q in queries:
+        try:
+            logger.info(f"🔍 Ищем на Pexels: {q}")
+            url = "https://api.pexels.com/v1/search"
+            headers = {"Authorization": PEXELS_API_KEY}
+            params = {
+                "query": q,
+                "per_page": 5,      # берём несколько
+                "orientation": "landscape",
+                "size": "large"
+            }
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            if response.status_code != 200:
+                logger.warning(f"Pexels ошибка: {response.status_code} для '{q}'")
+                continue
+            data = response.json()
+            if not data.get("photos"):
+                continue
+
+            # Проверяем каждое фото на релевантность по alt
+            for photo in data["photos"]:
+                alt = photo.get("alt", "").lower()
+                # Если alt содержит ключевые слова из запроса – считаем релевантным
+                words = q.lower().split()
+                if any(word in alt for word in words):
+                    photo_url = photo["src"]["large"]
+                    logger.info(f"✅ Релевантное фото: {photo_url} (alt: {alt})")
+                    return photo_url
+            # Если ни одно не подошло по alt, берём первое
+            photo_url = data["photos"][0]["src"]["large"]
+            logger.info(f"✅ Найдено фото (первое): {photo_url}")
+            return photo_url
+        except Exception as e:
+            logger.error(f"Pexels exception: {e}")
+
+    logger.warning("❌ Не найдено фото ни по одному запросу")
+    return None
 
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
@@ -136,9 +169,8 @@ def generate_story(topic):
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
-            story = re.sub(r'\\+', '', story)          # убираем все слеши
-            story = re.sub(r'\(', '(', story)          # нормализуем скобки
-            story = re.sub(r'\)', ')', story)
+            # Жёстко удаляем все слеши
+            story = re.sub(r'\\+', '', story)
             return story
         else:
             logger.error(f"Polza error: {response.status_code}")
@@ -172,8 +204,9 @@ def truncate_to_sentence(text, max_len):
             return ensure_complete(truncated + '...')
 
 def publish_to_channel(text, image_url):
+    # Ещё раз удаляем слеши
     text = re.sub(r'\\+', '', text)
-    
+
     if image_url:
         try:
             logger.info(f"📥 Скачиваем изображение: {image_url}")
@@ -203,6 +236,7 @@ def publish_to_channel(text, image_url):
             logger.error(f"Image error: {e}")
             image_url = None
 
+    # Только текст
     safe_text = escape_md(truncate_to_sentence(text, 4096))
     payload = {'chat_id': CHANNEL_ID, 'text': safe_text, 'parse_mode': 'Markdown'}
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
