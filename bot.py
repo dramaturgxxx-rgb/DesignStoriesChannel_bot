@@ -61,15 +61,15 @@ def save_published(articles):
         json.dump(articles[-100:], f)
 
 def escape_md(text):
-    """Экранирует только те символы, которые реально могут поломать Markdown"""
-    chars = r'_*[]()~`>#+-=|{}'  # точка и восклицание удалены
+    """Экранирует только опасные символы для Markdown (без тильды и обратной кавычки)"""
+    chars = r'_*[]()>#+-=|{}'  # убрали ~ и `
     return ''.join('\\' + c if c in chars else c for c in text)
 
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def search_wikimedia(query):
-    """Поиск картинок с правильным User-Agent"""
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     queries = [query]
     eng = extract_english_words(query)
     if eng:
@@ -79,9 +79,6 @@ def search_wikimedia(query):
         queries.append(eng[0])
     queries = list(dict.fromkeys(queries))
 
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
     for q in queries:
         try:
             logger.info(f"🔍 Ищем на Wikimedia: {q}")
@@ -96,12 +93,10 @@ def search_wikimedia(query):
             }
             response = requests.get(search_url, params=params, headers=headers, timeout=10)
             if response.status_code != 200:
-                logger.warning(f"⚠️ Статус {response.status_code}, тело: {response.text[:200]}")
                 continue
             try:
                 data = response.json()
             except json.JSONDecodeError:
-                logger.error(f"❌ Не JSON: {response.text[:200]}")
                 continue
             if not data.get("query", {}).get("search"):
                 continue
@@ -120,9 +115,12 @@ def search_wikimedia(query):
             for page in info_data.get("query", {}).get("pages", {}).values():
                 if page.get("imageinfo"):
                     url = page["imageinfo"][0]["url"]
+                    # Проверяем расширение, но не отсекаем, если оно не в списке – пропускаем только явно неподдерживаемые
                     if re.search(r'\.(jpg|jpeg|png|gif|webp)(\?.*)?$', url, re.I):
                         logger.info(f"✅ Найдено: {url}")
                         return url
+                    else:
+                        logger.warning(f"⛔ Неподдерживаемый формат: {url}")
         except Exception as e:
             logger.error(f"Ошибка при поиске '{q}': {e}")
     logger.warning("❌ Изображение не найдено")
@@ -135,7 +133,7 @@ def generate_story(topic):
 - Объём: ровно 700–800 символов (не больше!).
 - История должна быть законченной: иметь вступление, основную часть и вывод или вопрос к читателю.
 - Не обрывай повествование на полуслове — обязательно заверши мысль.
-- Заголовок — интригующий (выдели его).
+- Заголовок — интригующий (выдели его жирным).
 - Пиши живым, разговорным языком.
 
 Тема: {topic}
@@ -158,7 +156,7 @@ def generate_story(topic):
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
             return story
         else:
-            logger.error(f"Polza error: {response.status_code} - {response.text[:200]}")
+            logger.error(f"Polza error: {response.status_code}")
             return None
     except Exception as e:
         logger.error(f"Generate story error: {e}")
@@ -169,7 +167,7 @@ def ensure_complete(text):
         return text
     if text[-1] in '.!?':
         return text
-    if text[-1] in ':,;—' or text.endswith(('что', 'как', 'это')):
+    if text[-1] in ':,;—' or text.endswith(('что', 'как', 'это', '—')):
         return text + ' Вот такая история!'
     else:
         return text + '.'
@@ -191,25 +189,44 @@ def truncate_to_sentence(text, max_len):
 def publish_to_channel(text, image_url):
     if image_url:
         try:
-            img_data = requests.get(image_url, timeout=30).content
-            files = {'photo': ('image.jpg', img_data)}
-            caption = text[:1024]
-            data = {
-                'chat_id': CHANNEL_ID,
-                'caption': caption,
-                'parse_mode': 'Markdown'
-            }
-            resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
-            if resp.status_code == 200:
-                logger.info("✅ Пост с картинкой опубликован")
-                return True
-            else:
-                logger.error(f"Telegram photo error: {resp.status_code} - {resp.text[:200]}")
+            logger.info(f"📥 Скачиваем изображение: {image_url}")
+            img_response = requests.get(image_url, timeout=30)
+            if img_response.status_code != 200:
+                logger.warning(f"Не удалось скачать, статус {img_response.status_code}")
                 image_url = None
+            else:
+                img_data = img_response.content
+                file_size = len(img_data)
+                logger.info(f"Размер файла: {file_size} байт")
+                if file_size > 10 * 1024 * 1024:
+                    logger.warning(f"Изображение слишком большое ({file_size} байт), пропускаем")
+                    image_url = None
+                else:
+                    files = {'photo': ('image.jpg', img_data)}
+                    caption = text[:1024]
+                    data = {
+                        'chat_id': CHANNEL_ID,
+                        'caption': caption,
+                        'parse_mode': 'Markdown'
+                    }
+                    resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
+                    if resp.status_code == 200:
+                        logger.info("✅ Пост с картинкой опубликован")
+                        return True
+                    else:
+                        logger.error(f"Telegram photo error: {resp.status_code} - {resp.text[:200]}")
+                        # При ошибке 400 обычно изображение битое, не пытаемся снова
+                        if resp.status_code == 400:
+                            logger.warning("❌ Telegram не принял изображение, отправляем только текст")
+                            image_url = None
+                        else:
+                            # Другие ошибки (например, 429) – тоже пропускаем картинку
+                            image_url = None
         except Exception as e:
             logger.error(f"Photo error: {e}")
             image_url = None
 
+    # Отправка только текста
     safe_text = escape_md(truncate_to_sentence(text, 4096))
     payload = {
         'chat_id': CHANNEL_ID,
