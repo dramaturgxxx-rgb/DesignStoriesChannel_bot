@@ -42,12 +42,10 @@ NSFW_WORDS = [
     'pussy', 'clit', 'anal', 'oral', 'blowjob', 'handjob', 'suck'
 ]
 
+# ===== ТОЛЬКО БРЕНДЫ И СТИЛИ (БЕЗ ДИЗАЙНЕРОВ) =====
 STYLES = [
     "баухаус", "ар-деко", "конструктивизм", "ар-нуво",
-    "поп-арт", "модерн", "функционализм", "минимализм",
-    "экспрессионизм", "сюрреализм", "дадаизм", "кубизм",
-    "футуризм", "венский сецессион", "югендстиль",
-    "деконструктивизм", "метаболизм", "органический", "брутализм"
+    "поп-арт", "модерн", "функционализм", "минимализм"
 ]
 BRANDS = [
     "Coca-Cola", "Apple", "Nike", "Adidas", "Chanel",
@@ -58,28 +56,20 @@ BRANDS = [
     "Lego", "Ferrari", "Lamborghini", "Porsche", "Tesla",
     "Google", "Microsoft", "Samsung", "Nokia", "Intel"
 ]
-DESIGNERS = [
-    "Малевич", "Родченко", "Тулуз-Лотрек", "Муха",
-    "Эймс", "Дитер Рамс", "Гропиус", "Ван Дер Роэ",
-    "Лисицкий", "Кандинский", "Мондриан", "Клее",
-    "Климт", "Шиле", "Хоффман", "Пикассо", "Дали",
-    "Уорхол", "Личитенштейн", "Бойс"
-]
 OBJECTS = [
     "логотип", "плакат", "шрифт", "вывеска",
     "реклама", "упаковка", "этикетка", "афиша",
-    "графика", "типографика", "интерьер", "мебель",
-    "календарь", "открытка", "меню", "билет",
-    "журнал", "газета", "книга", "конверт"
+    "журнал", "обложка", "меню", "билет"
 ]
 
+# =============================================
+
 def generate_topic():
-    templates = [
-        lambda: f"{random.choice(STYLES)} {random.choice(OBJECTS)}",
-        lambda: f"{random.choice(OBJECTS)} {random.choice(BRANDS)}",
-        lambda: f"{random.choice(DESIGNERS)} {random.choice(STYLES)}"
-    ]
-    return random.choice(templates)().lower()
+    """Только бренд+объект или стиль+объект"""
+    if random.random() < 0.6:
+        return f"{random.choice(BRANDS)} {random.choice(OBJECTS)}".lower()
+    else:
+        return f"{random.choice(STYLES)} {random.choice(OBJECTS)}".lower()
 
 def get_unique_topic(published):
     attempts = 0
@@ -154,9 +144,10 @@ def search_duckduckgo_safe(query):
         return None
 
 def search_image(topic):
-    """Поиск по теме с умным формированием запросов"""
+    """Формирует точные запросы для поиска"""
     logger.info(f"🔍 Поиск картинки для: {topic}")
 
+    # Разбираем тему на части
     words = topic.split()
     brand = None
     obj = None
@@ -175,53 +166,51 @@ def search_image(topic):
             style = s
             break
 
+    # Английские эквиваленты объектов
+    eng_obj = {
+        "логотип": "logo",
+        "плакат": "poster",
+        "шрифт": "font",
+        "вывеска": "sign",
+        "реклама": "advertisement",
+        "упаковка": "packaging",
+        "этикетка": "label",
+        "афиша": "poster",
+        "журнал": "magazine",
+        "обложка": "cover",
+        "меню": "menu",
+        "билет": "ticket"
+    }.get(obj, obj)
+
     queries = []
 
+    # 1. Если есть бренд и объект – самый точный запрос
     if brand and obj:
-        eng_obj = {
-            "логотип": "logo",
-            "плакат": "poster",
-            "шрифт": "font",
-            "вывеска": "sign",
-            "реклама": "advertisement",
-            "упаковка": "packaging",
-            "этикетка": "label",
-            "афиша": "poster",
-            "графика": "graphic",
-            "типографика": "typography",
-            "интерьер": "interior",
-            "мебель": "furniture",
-            "календарь": "calendar",
-            "открытка": "postcard",
-            "меню": "menu",
-            "билет": "ticket",
-            "журнал": "magazine",
-            "газета": "newspaper",
-            "книга": "book",
-            "конверт": "envelope"
-        }.get(obj, obj)
-
         queries.append(f'"{brand}" "{eng_obj}" vintage')
-        queries.append(f'"{brand}" "{eng_obj}" retro')
         queries.append(f'"{brand}" "{eng_obj}" design')
-        queries.append(f'"{brand}" {eng_obj} vintage')
-        queries.append(f'"{brand}" retro {eng_obj}')
+        queries.append(f'"{brand}" {eng_obj} retro')
+        queries.append(f'"{brand}" {eng_obj}')
 
+    # 2. Если есть только бренд
     if brand:
         queries.append(f'"{brand}" design')
         queries.append(f'"{brand}" vintage')
-        queries.append(f'"{brand}" retro')
 
+    # 3. Если есть стиль и объект
+    if style and obj:
+        queries.append(f'"{style}" "{eng_obj}" design')
+        queries.append(f'"{style}" {eng_obj} poster')
+        queries.append(f'"{style}" {eng_obj}')
+
+    # 4. Если есть только объект
     if obj:
         queries.append(f'"{obj}" design')
         queries.append(f'"{obj}" vintage')
-        queries.append(f'"{obj}" retro')
 
-    if style and obj:
-        queries.append(f'"{style}" "{obj}"')
-        queries.append(f'"{style}" {obj} design')
-
+    # 5. Оригинальная тема
     queries.append(topic)
+
+    # Убираем дубли
     queries = list(dict.fromkeys(queries))
 
     for q in queries:
