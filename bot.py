@@ -35,7 +35,7 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# NSFW СТОП-СЛОВА
+# NSFW ФИЛЬТР
 NSFW_WORDS = [
     'porn', 'porno', 'xxx', 'sex', 'nude', 'naked', 'penis', 'vagina',
     'boobs', 'breast', 'ass', 'butt', 'orgy', 'bdsm', 'kink', 'fetish',
@@ -44,12 +44,13 @@ NSFW_WORDS = [
     'pussy', 'clit', 'anal', 'oral', 'blowjob', 'handjob', 'suck'
 ]
 
-# РАСШИРЕННЫЕ СПИСКИ (30+ элементов для бесконечных комбинаций)
+# ===== РАСШИРЕННЫЕ СПИСКИ =====
 STYLES = [
     "баухаус", "ар-деко", "конструктивизм", "ар-нуво",
     "поп-арт", "модерн", "функционализм", "минимализм",
     "экспрессионизм", "сюрреализм", "дадаизм", "кубизм",
-    "футуризм", "венский сецессион", "югендстиль"
+    "футуризм", "венский сецессион", "югендстиль",
+    "деконструктивизм", "метаболизм", "органический", "брутализм"
 ]
 BRANDS = [
     "Coca-Cola", "Apple", "Nike", "Adidas", "Chanel",
@@ -57,28 +58,28 @@ BRANDS = [
     "Kodak", "Disney", "NASA", "MTV", "Starbucks",
     "Puma", "Levi's", "Harley-Davidson", "Ford", "BMW",
     "Toyota", "Sony", "Philips", "Braun", "IKEA",
-    "Lego", "Ferrari", "Lamborghini", "Porsche", "Tesla"
+    "Lego", "Ferrari", "Lamborghini", "Porsche", "Tesla",
+    "Google", "Microsoft", "Samsung", "Nokia", "Intel"
 ]
 DESIGNERS = [
     "Малевич", "Родченко", "Тулуз-Лотрек", "Муха",
     "Эймс", "Дитер Рамс", "Гропиус", "Ван Дер Роэ",
     "Лисицкий", "Кандинский", "Мондриан", "Клее",
-    "Климт", "Шиле", "Хоффман"
+    "Климт", "Шиле", "Хоффман", "Пикассо", "Дали",
+    "Уорхол", "Личитенштейн", "Бойс"
 ]
 OBJECTS = [
     "логотип", "плакат", "шрифт", "вывеска",
     "реклама", "упаковка", "этикетка", "афиша",
-    "графика", "типографика", "интерьер", "мебель"
+    "графика", "типографика", "интерьер", "мебель",
+    "календарь", "открытка", "меню", "билет",
+    "журнал", "газета", "книга", "конверт"
 ]
 
 def generate_topic():
-    """Генерирует простую тему из 2–3 слов"""
     templates = [
-        # 40% – стиль + объект
         lambda: f"{random.choice(STYLES)} {random.choice(OBJECTS)}",
-        # 30% – объект + бренд
         lambda: f"{random.choice(OBJECTS)} {random.choice(BRANDS)}",
-        # 30% – дизайнер + стиль
         lambda: f"{random.choice(DESIGNERS)} {random.choice(STYLES)}"
     ]
     topic = random.choice(templates)()
@@ -86,12 +87,12 @@ def generate_topic():
 
 def get_unique_topic(published):
     attempts = 0
-    while attempts < 2000:
+    while attempts < 3000:
         topic = generate_topic()
         if topic not in published:
             return topic
         attempts += 1
-    logger.info("📂 Все комбинации исчерпаны, сброс")
+    logger.info("📂 Все комбинации исчерпаны – сброс")
     save_published([])
     return generate_topic()
 
@@ -161,9 +162,7 @@ def search_duckduckgo_safe(query):
         return None
 
 def search_image(topic):
-    """Пробует тему как есть и простые вариации"""
     queries = [topic]
-    # Варианты с английскими словами
     if "плакат" in topic:
         queries.append(topic.replace("плакат", "poster"))
     if "логотип" in topic:
@@ -172,7 +171,6 @@ def search_image(topic):
         queries.append(topic.replace("шрифт", "font"))
     if "вывеска" in topic:
         queries.append(topic.replace("вывеска", "sign"))
-    # Просто тема + design (без лишнего)
     if not topic.endswith("design"):
         queries.append(topic + " design")
     queries = list(dict.fromkeys(queries))
@@ -304,7 +302,7 @@ def create_and_publish():
             logger.info(f"✅ Найдена картинка")
         else:
             logger.warning("⚠️ Без картинки")
-    header = "**Истории про дизайн**\n\n"
+    header = "📐 **Истории про дизайн**\n\n"   # <— иконка вернулась!
     footer = "\n\n💬 А ты знал эту историю? Напиши в комментариях!\n\n👍 Поддержи ⭐️"
     story_cut = truncate_to_sentence(story, 800)
     full_text = clean_text(header + story_cut + footer)
