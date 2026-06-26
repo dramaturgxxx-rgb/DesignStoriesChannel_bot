@@ -5,7 +5,19 @@ import json
 import os
 import random
 import re
+import sys
+import subprocess
 from datetime import datetime
+
+# Автоустановка duckduckgo-search, если не установлена
+try:
+    from duckduckgo_search import DDGS
+except ImportError:
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    logger.info("⏳ Устанавливаем duckduckgo-search...")
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'duckduckgo-search', '-q'])
+    from duckduckgo_search import DDGS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -15,7 +27,6 @@ BOT_TOKEN = "8775611192:AAFsC5xlkQX9ijC8vQd6OEjgdWxQpEAOjMQ"
 CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
 MODEL = "deepseek/deepseek-v4-flash"
-PIXABAY_API_KEY = "4565619-33976f9ea2f6dc09d5d97cd59"
 
 TEST_MODE = True
 TEST_INTERVAL = 60
@@ -135,8 +146,6 @@ TOPICS = [
     "старый знак MTV"
 ]
 
-BAD_WORDS = ['animal', 'wild', 'nature', 'zoo', 'lion', 'tiger', 'panther', 'leopard', 'cheetah', 'jaguar', 'cat', 'predator', 'wildlife', 'safari', 'beast', 'claw', 'fang', 'fur', 'dog', 'wolf', 'bear', 'deer', 'fox', 'rabbit', 'bird', 'eagle', 'hawk', 'owl', 'fish', 'shark', 'whale', 'dolphin']
-
 def load_published():
     try:
         if os.path.exists(PUBLISHED_FILE):
@@ -167,148 +176,44 @@ def get_next_topic(published):
     return TOPICS[0]
 
 def clean_text(text):
-    """Удаляет только обратные слеши, не трогает пробелы и переносы"""
     if not text:
         return text
-    text = text.replace('\\', '')  # удаляем все обратные слеши
-    return text
+    return text.replace('\\', '')
 
-def extract_english_words(text):
-    return re.findall(r'[A-Za-z0-9]+', text)
-
-def is_bad_image(alt_text):
-    if not alt_text:
-        return False
-    alt_lower = alt_text.lower()
-    for word in BAD_WORDS:
-        if word in alt_lower:
-            return True
-    return False
-
-def search_pixabay(query):
-    if not PIXABAY_API_KEY:
-        logger.warning("⚠️ Pixabay API ключ не настроен!")
-        return None
+def search_duckduckgo(query):
+    """Поиск изображений через DuckDuckGo"""
     try:
-        url = "https://pixabay.com/api/"
-        params = {
-            "key": PIXABAY_API_KEY,
-            "q": query,
-            "image_type": "photo",
-            "per_page": 10,
-            "orientation": "horizontal"
-        }
-        response = requests.get(url, params=params, timeout=10)
-        if response.status_code != 200:
-            logger.warning(f"Pixabay error: {response.status_code}")
+        logger.info(f"🔍 DuckDuckGo: {query}")
+        with DDGS() as ddgs:
+            # Ищем одно изображение
+            results = list(ddgs.images(query, max_results=1))
+            if results and len(results) > 0:
+                image_url = results[0].get('image')
+                if image_url:
+                    logger.info(f"✅ Найдено: {image_url}")
+                    return image_url
+            logger.warning("❌ Ничего не найдено")
             return None
-        data = response.json()
-        if not data.get("hits"):
-            return None
-        keywords = set(query.lower().split())
-        for hit in data["hits"]:
-            tags = hit.get("tags", "").lower()
-            if is_bad_image(tags):
-                continue
-            if any(word in tags for word in keywords):
-                return hit["largeImageURL"]
-        for hit in data["hits"]:
-            if not is_bad_image(hit.get("tags", "")):
-                return hit["largeImageURL"]
-        return data["hits"][0]["largeImageURL"] if data["hits"] else None
     except Exception as e:
-        logger.error(f"Pixabay exception: {e}")
+        logger.error(f"DuckDuckGo error: {e}")
         return None
-
-def search_wikimedia(query):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-    eng = extract_english_words(query)
-    if not eng:
-        return None
-    base = ' '.join(eng)
-    categories = ["Logos", "Posters", "Design", "Advertising", "Furniture", "Typography"]
-    search_terms = []
-    for cat in categories:
-        search_terms.append(f'"{base}" incategory:"{cat}"')
-    search_terms.append(base)
-    search_terms = list(dict.fromkeys(search_terms))
-
-    for term in search_terms:
-        try:
-            url = "https://commons.wikimedia.org/w/api.php"
-            params = {
-                "action": "query",
-                "format": "json",
-                "list": "search",
-                "srsearch": term,
-                "srnamespace": 6,
-                "srlimit": 5,
-                "srwhat": "text"
-            }
-            response = requests.get(url, params=params, headers=headers, timeout=10)
-            if response.status_code != 200:
-                continue
-            data = response.json()
-            if not data.get("query", {}).get("search"):
-                continue
-            for result in data["query"]["search"]:
-                title = result["title"]
-                title_lower = title.lower()
-                if not any(word.lower() in title_lower for word in eng):
-                    continue
-                info_params = {
-                    "action": "query",
-                    "format": "json",
-                    "titles": title,
-                    "prop": "imageinfo",
-                    "iiprop": "url|extmetadata"
-                }
-                info_resp = requests.get(url, params=info_params, headers=headers, timeout=10)
-                if info_resp.status_code != 200:
-                    continue
-                info_data = info_resp.json()
-                for page in info_data.get("query", {}).get("pages", {}).values():
-                    if not page.get("imageinfo"):
-                        continue
-                    url_img = page["imageinfo"][0]["url"]
-                    if re.search(r'\.(jpg|jpeg)(\?.*)?$', url_img, re.I):
-                        desc = page["imageinfo"][0].get("extmetadata", {}).get("ImageDescription", {}).get("value", "")
-                        if desc:
-                            desc_lower = desc.lower()
-                            if any(word.lower() in desc_lower for word in eng):
-                                return url_img
-                        else:
-                            return url_img
-        except Exception as e:
-            logger.error(f"Wikimedia error: {e}")
-    return None
 
 def search_image(query):
-    logger.info(f"🔍 Поиск фото для: {query}")
-    url = search_pixabay(query)
-    if url:
-        logger.info(f"✅ Pixabay")
-        return url
-    url = search_wikimedia(query)
-    if url:
-        logger.info(f"✅ Wikimedia")
-        return url
-    logger.warning("❌ Фото не найдено")
-    return None
+    """Просто вызываем DuckDuckGo"""
+    return search_duckduckgo(query)
 
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
 
 Важные требования:
-- Объём: ровно 700–800 символов (не больше!).
-- История должна быть законченной: вступление, основная часть, вывод или вопрос.
-- Заголовок — интригующий, выдели его **жирным**.
+- Объём: ровно 700–800 символов.
+- Заголовок — **жирным**.
 - Пиши живым, разговорным языком.
-- НЕ ИСПОЛЬЗУЙ обратную косую черту (\) В ТЕКСТЕ.
+- НЕ ИСПОЛЬЗУЙ обратную косую черту (\).
 
 Тема: {topic}
 
-Напиши историю:"""
+История:"""
     try:
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
@@ -327,69 +232,41 @@ def generate_story(topic):
         logger.error(f"Generate story error: {e}")
         return None
 
-def ensure_complete(text):
-    if not text:
-        return text
-    if text[-1] in '.!?':
-        return text
-    if text[-1] in ':,;—' or text.endswith(('что', 'как', 'это', '—')):
-        return text + ' Вот такая история!'
-    else:
-        return text + '.'
-
 def truncate_to_sentence(text, max_len):
     text = clean_text(text)
     if len(text) <= max_len:
-        return ensure_complete(text)
+        return text
     truncated = text[:max_len]
     last_punct = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
     if last_punct > max_len * 0.6:
-        return ensure_complete(truncated[:last_punct+1])
+        return truncated[:last_punct+1]
     else:
         last_space = truncated.rfind(' ')
         if last_space > max_len * 0.6:
-            return ensure_complete(truncated[:last_space] + '...')
+            return truncated[:last_space] + '...'
         else:
-            return ensure_complete(truncated + '...')
-
-def escape_md(text):
-    chars = r'_*#+-=|{}>'
-    return ''.join('\\' + c if c in chars else c for c in text)
+            return truncated + '...'
 
 def publish_to_channel(text, image_url):
     text = clean_text(text)
-
     if image_url:
         try:
-            logger.info(f"📥 Скачиваем картинку")
+            logger.info(f"📥 Скачиваем")
             headers = {'User-Agent': 'Mozilla/5.0'}
             img_response = requests.get(image_url, headers=headers, timeout=30)
             if img_response.status_code == 200:
                 img_data = img_response.content
-                if len(img_data) > 20 * 1024 * 1024:
-                    logger.warning("Картинка >20 МБ")
-                    image_url = None
-                else:
+                if len(img_data) <= 20 * 1024 * 1024:
                     caption = clean_text(text[:1024])
-                    caption = escape_md(caption)
                     files = {'photo': ('image.jpg', img_data)}
                     data = {'chat_id': CHANNEL_ID, 'caption': caption, 'parse_mode': 'Markdown'}
                     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto", files=files, data=data, timeout=30)
                     if resp.status_code == 200:
                         logger.info("✅ Пост с картинкой")
                         return True
-                    else:
-                        logger.error(f"Telegram error: {resp.text}")
-                        image_url = None
-            else:
-                logger.warning(f"Не скачалось: {img_response.status_code}")
-                image_url = None
         except Exception as e:
             logger.error(f"Image error: {e}")
-            image_url = None
-
     safe_text = clean_text(text[:4096])
-    safe_text = escape_md(safe_text)
     payload = {'chat_id': CHANNEL_ID, 'text': safe_text, 'parse_mode': 'Markdown'}
     resp = requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage", json=payload, timeout=30)
     if resp.status_code == 200:
@@ -403,21 +280,21 @@ def create_and_publish():
     logger.info("=" * 40)
     logger.info("🚀 Новый пост")
     published = load_published()
-
     topic = get_next_topic(published)
     logger.info(f"📌 Тема: {topic}")
 
+    # Ищем картинку через DuckDuckGo
     image_url = search_image(topic)
     if not image_url:
+        # Пробуем альтернативную тему (следующую) если не нашли картинку
         alt_topic = get_next_topic(published + [topic])
         logger.info(f"🔄 Альтернатива: {alt_topic}")
         image_url = search_image(alt_topic)
         if image_url:
             topic = alt_topic
-            logger.info(f"✅ Найдена картинка")
-
-    if not image_url:
-        logger.warning("⚠️ Без картинки")
+            logger.info(f"✅ Найдена картинка для '{topic}'")
+        else:
+            logger.warning("⚠️ Без картинки")
 
     story = generate_story(topic)
     if not story:
@@ -436,7 +313,7 @@ def create_and_publish():
         logger.info(f"✅ Опубликовано: {topic}")
         return True
     else:
-        logger.error("❌ Ошибка публикации")
+        logger.error("❌ Ошибка")
         return False
 
 def run_schedule():
