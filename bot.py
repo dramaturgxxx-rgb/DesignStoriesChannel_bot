@@ -9,15 +9,15 @@ import sys
 import subprocess
 from datetime import datetime
 
-# Автоустановка duckduckgo-search, если не установлена
+# Автоустановка ddgs (новая библиотека)
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
 except ImportError:
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
     logger = logging.getLogger(__name__)
-    logger.info("⏳ Устанавливаем duckduckgo-search...")
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'duckduckgo-search', '-q'])
-    from duckduckgo_search import DDGS
+    logger.info("⏳ Устанавливаем ddgs...")
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'ddgs', '-q'])
+    from ddgs import DDGS
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -27,6 +27,7 @@ BOT_TOKEN = "8775611192:AAFsC5xlkQX9ijC8vQd6OEjgdWxQpEAOjMQ"
 CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
 MODEL = "deepseek/deepseek-v4-flash"
+PIXABAY_API_KEY = "4565619-33976f9ea2f6dc09d5d97cd59"
 
 TEST_MODE = True
 TEST_INTERVAL = 60
@@ -181,11 +182,11 @@ def clean_text(text):
     return text.replace('\\', '')
 
 def search_duckduckgo(query):
-    """Поиск изображений через DuckDuckGo"""
+    """Поиск изображений через DuckDuckGo (с задержкой)"""
+    time.sleep(3)  # Задержка, чтобы не превысить лимит
     try:
         logger.info(f"🔍 DuckDuckGo: {query}")
         with DDGS() as ddgs:
-            # Ищем одно изображение
             results = list(ddgs.images(query, max_results=1))
             if results and len(results) > 0:
                 image_url = results[0].get('image')
@@ -198,9 +199,42 @@ def search_duckduckgo(query):
         logger.error(f"DuckDuckGo error: {e}")
         return None
 
+def search_pixabay(query):
+    """Поиск на Pixabay (резерв)"""
+    if not PIXABAY_API_KEY:
+        return None
+    try:
+        url = "https://pixabay.com/api/"
+        params = {
+            "key": PIXABAY_API_KEY,
+            "q": query,
+            "image_type": "photo",
+            "per_page": 1,
+            "orientation": "horizontal"
+        }
+        response = requests.get(url, params=params, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("hits") and len(data["hits"]) > 0:
+                return data["hits"][0]["largeImageURL"]
+    except Exception as e:
+        logger.error(f"Pixabay error: {e}")
+    return None
+
 def search_image(query):
-    """Просто вызываем DuckDuckGo"""
-    return search_duckduckgo(query)
+    """Сначала DuckDuckGo, если не нашёл — Pixabay"""
+    logger.info(f"🔍 Поиск фото: {query}")
+    url = search_duckduckgo(query)
+    if url:
+        return url
+    # Резерв
+    logger.info("🔄 DuckDuckGo не дал результат, пробуем Pixabay")
+    url = search_pixabay(query)
+    if url:
+        logger.info(f"✅ Pixabay: {url}")
+        return url
+    logger.warning("❌ Фото не найдено")
+    return None
 
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
@@ -283,10 +317,8 @@ def create_and_publish():
     topic = get_next_topic(published)
     logger.info(f"📌 Тема: {topic}")
 
-    # Ищем картинку через DuckDuckGo
     image_url = search_image(topic)
     if not image_url:
-        # Пробуем альтернативную тему (следующую) если не нашли картинку
         alt_topic = get_next_topic(published + [topic])
         logger.info(f"🔄 Альтернатива: {alt_topic}")
         image_url = search_image(alt_topic)
