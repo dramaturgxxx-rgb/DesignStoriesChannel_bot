@@ -25,38 +25,20 @@ os.makedirs(os.path.dirname(PUBLISHED_FILE), exist_ok=True)
 
 # =============================================
 
-# ----- РАСШИРЕННЫЕ СПИСКИ ДЛЯ ГАРАНТИРОВАННОГО ПОИСКА НА PEXELS -----
+# ----- СПИСКИ ДЛЯ ГЕНЕРАЦИИ ТЕМ -----
 
-ERAS = [
-    "1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х",
-    "1980-х", "1990-х", "2000-х"
-]
+ERAS = ["1920-х", "1930-х", "1940-х", "1950-х", "1960-х", "1970-х", "1980-х", "1990-х"]
 
-STYLES = [
-    "ретро", "винтажный", "старый", "классический", "американский",
-    "европейский", "скандинавский", "индустриальный", "минимализм",
-    "ар-деко", "модерн", "баухаус", "конструктивизм", "поп-арт"
-]
+STYLES = ["ретро", "винтажный", "старый", "классический", "ар-деко", "модерн", "баухаус", "конструктивизм", "поп-арт", "скандинавский", "индустриальный"]
 
-OBJECTS = [
-    "плакат", "постер", "реклама", "вывеска", "логотип", "упаковка",
-    "интерьер", "кафе", "ресторан", "магазин", "витрина", "стул",
-    "кресло", "стол", "диван", "светильник", "лампа", "здание",
-    "архитектура", "автомобиль", "мотоцикл", "велосипед", "трамвай",
-    "поезд", "самолет", "корабль", "телефон", "радиоприемник",
-    "фотоаппарат", "телевизор", "часы", "посуда", "книга", "журнал",
-    "газета", "афиша", "билет", "игрушка", "ковер", "зеркало"
-]
+OBJECTS = ["логотип", "вывеска", "плакат", "постер", "реклама", "упаковка", "этикетка", "афиша", "интерьер", "кафе", "ресторан", "витрина", "стул", "кресло", "светильник", "лампа", "здание", "архитектура", "автомобиль", "часы", "телефон", "радиоприемник", "фотоаппарат", "телевизор", "журнал", "газета", "игрушка", "ковер"]
 
-BRANDS = [
-    "Apple", "Nike", "Coca-Cola", "McDonald's", "Chanel", "Volkswagen",
-    "IBM", "Mercedes-Benz", "Starbucks", "Adidas", "BMW", "Ford",
-    "Levi's", "Rolex", "Kodak", "Disney", "MTV", "NASA", "Toyota",
-    "Sony", "Philips", "Braun", "Boeing", "IKEA", "Lego", "Ferrari",
-    "Lamborghini", "Porsche", "Tesla", "Samsung", "Google", "Microsoft"
-]
+BRANDS = ["Apple", "Nike", "Coca-Cola", "McDonald's", "Chanel", "Volkswagen", "IBM", "Mercedes-Benz", "Starbucks", "Adidas", "BMW", "Ford", "Levi's", "Rolex", "Kodak", "Disney", "MTV", "NASA", "Toyota", "Sony", "Philips", "Braun", "IKEA", "Lego", "Ferrari", "Porsche", "Tesla", "Google", "Microsoft", "Puma", "Reebok", "Lacoste", "Ralph Lauren", "Vogue", "Harley-Davidson", "Chanel", "Dior", "Versace", "Gucci"]
 
 # ----- КОНЕЦ СПИСКОВ -----
+
+# ЧЁРНЫЙ СПИСОК СЛОВ ДЛЯ ФИЛЬТРАЦИИ ФОТО
+BAD_WORDS = ['animal', 'wild', 'nature', 'zoo', 'lion', 'tiger', 'panther', 'leopard', 'cheetah', 'jaguar', 'cat', 'predator', 'wildlife', 'safari', 'beast', 'claw', 'fang', 'fur']
 
 def load_published():
     try:
@@ -80,12 +62,10 @@ def save_published(articles):
         logger.error(f"Ошибка сохранения: {e}")
 
 def generate_topic():
-    """Генерирует тему, гарантированно содержащую слова 'ретро', 'винтажный' или 'старый' для успешного поиска на Pexels"""
     era = random.choice(ERAS)
     style = random.choice(STYLES)
     obj = random.choice(OBJECTS)
     brand = random.choice(BRANDS)
-    # Шаблоны с обязательным якорным словом
     templates = [
         f"ретро {obj} {brand}",
         f"винтажный {obj} {brand}",
@@ -100,7 +80,6 @@ def generate_topic():
     return topic
 
 def get_unique_topic(published):
-    """Генерирует новую тему, которой нет в списке published (с защитой от бесконечного цикла)"""
     attempts = 0
     max_attempts = 2000
     while attempts < max_attempts:
@@ -108,20 +87,30 @@ def get_unique_topic(published):
         if topic not in published:
             return topic
         attempts += 1
-    # Если все комбинации исчерпаны (практически невозможно), сбрасываем историю
     logger.warning("⚠️ Все комбинации исчерпаны? Сбрасываем историю.")
     save_published([])
     return generate_topic()
 
 def escape_md(text):
+    # Убираем все возможные слеши и экранирование
     chars = r'_*#+-=|{}>'
     return ''.join('\\' + c if c in chars else c for c in text)
 
 def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
+def is_bad_image(alt_text):
+    """Проверяет, содержит ли alt текст стоп-слова (животные, природа)"""
+    if not alt_text:
+        return False
+    alt_lower = alt_text.lower()
+    for word in BAD_WORDS:
+        if word in alt_lower:
+            return True
+    return False
+
 def search_pexels(query):
-    """Расширенный поиск: до 7 вариантов запроса для гарантированного результата"""
+    """Поиск с фильтрацией фото, исключающей животных и природу"""
     if not PEXELS_API_KEY:
         logger.warning("⚠️ Pexels API ключ не настроен!")
         return None
@@ -129,26 +118,30 @@ def search_pexels(query):
     eng = extract_english_words(query)
     base = ' '.join(eng) if eng else query
 
-    # Формируем множество запросов для максимального покрытия
+    # Формируем запросы с акцентом на дизайн
     queries = [query]
     if eng:
         queries.append(base)
         if any(w in query for w in ['логотип', 'logo']):
             queries.append(f"{base} logo")
+            queries.append(f"vintage {base} logo")
+            queries.append(f"{base} brand logo")
         if any(w in query for w in ['плакат', 'постер', 'poster']):
             queries.append(f"{base} poster")
             queries.append(f"vintage {base} poster")
         if any(w in query for w in ['стул', 'кресло', 'chair']):
             queries.append(f"{base} chair")
+            queries.append(f"vintage {base} chair")
         if any(w in query for w in ['шрифт', 'font']):
             queries.append(f"{base} font")
+            queries.append(f"{base} typography")
         if any(w in query for w in ['автомобиль', 'car']):
             queries.append(f"vintage {base} car")
         if any(w in query for w in ['вывеска', 'sign']):
             queries.append(f"vintage {base} sign")
-        if any(w in query for w in ['ретро', 'винтажный', 'vintage', 'retro']):
-            queries.append(f"vintage {base}")
+        queries.append(f"vintage {base}")
         queries.append(f"retro {base}")
+        queries.append(f"design {base}")
     queries = list(dict.fromkeys(queries))
 
     for q in queries:
@@ -156,34 +149,42 @@ def search_pexels(query):
             logger.info(f"🔍 Ищем на Pexels: {q}")
             url = "https://api.pexels.com/v1/search"
             headers = {"Authorization": PEXELS_API_KEY}
-            params = {
-                "query": q,
-                "per_page": 5,
-                "orientation": "landscape",
-                "size": "large"
-            }
+            params = {"query": q, "per_page": 10, "orientation": "landscape", "size": "large"}
             response = requests.get(url, headers=headers, params=params, timeout=10)
             if response.status_code != 200:
                 continue
             data = response.json()
             if not data.get("photos"):
                 continue
-            # Сначала ищем релевантное по alt
+
+            # Проверяем каждое фото
             for photo in data["photos"]:
-                alt = photo.get("alt", "").lower()
+                alt = photo.get("alt", "")
+                # Пропускаем фото с животными/природой
+                if is_bad_image(alt):
+                    logger.info(f"⛔ Пропускаем фото с животным: {alt}")
+                    continue
+
+                # Проверяем релевантность по ключевым словам
+                alt_lower = alt.lower()
                 words = q.lower().split()
-                if any(word in alt for word in words):
+                if any(word in alt_lower for word in words):
                     photo_url = photo["src"]["large"]
-                    logger.info(f"✅ Релевантное фото: {photo_url}")
+                    logger.info(f"✅ Релевантное фото: {photo_url} (alt: {alt})")
                     return photo_url
-            # Если не нашли по alt – берём первое
-            photo_url = data["photos"][0]["src"]["large"]
-            logger.info(f"✅ Найдено фото: {photo_url}")
-            return photo_url
+
+            # Если релевантных нет, берём первое НЕ животное
+            for photo in data["photos"]:
+                alt = photo.get("alt", "")
+                if not is_bad_image(alt):
+                    photo_url = photo["src"]["large"]
+                    logger.info(f"✅ Найдено фото (не животное): {photo_url}")
+                    return photo_url
+
         except Exception as e:
             logger.error(f"Pexels exception для '{q}': {e}")
 
-    logger.warning("❌ Не найдено фото ни по одному запросу")
+    logger.warning("❌ Не найдено подходящее фото")
     return None
 
 def generate_story(topic):
@@ -195,7 +196,7 @@ def generate_story(topic):
 - Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
 - Никаких упоминаний политики, войн, нацизма, фюреров, свастик.
-- Не используй обратные слеши (\\) или экранирование.
+- НЕ ИСПОЛЬЗУЙ обратные слеши (\\) или экранирование в тексте. Вообще никаких \.
 
 Тема: {topic}
 
@@ -209,8 +210,16 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
+            # Удаляем вводные фразы
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
+            # Удаляем ВСЕ слеши (одиночные, двойные, экранированные)
             story = re.sub(r'\\+', '', story)
+            # Удаляем экранированные точки и скобки
+            story = re.sub(r'\\\(', '(', story)
+            story = re.sub(r'\\\)', ')', story)
+            story = re.sub(r'\\\.', '.', story)
+            story = re.sub(r'\\\!', '!', story)
+            story = re.sub(r'\\\?', '?', story)
             return story
         else:
             logger.error(f"Polza error: {response.status_code}")
@@ -244,7 +253,14 @@ def truncate_to_sentence(text, max_len):
             return ensure_complete(truncated + '...')
 
 def publish_to_channel(text, image_url):
+    # Жёстко чистим текст от слешей перед отправкой
     text = re.sub(r'\\+', '', text)
+    text = re.sub(r'\\\(', '(', text)
+    text = re.sub(r'\\\)', ')', text)
+    text = re.sub(r'\\\.', '.', text)
+    text = re.sub(r'\\\!', '!', text)
+    text = re.sub(r'\\\?', '?', text)
+
     if image_url:
         try:
             logger.info(f"📥 Скачиваем: {image_url}")
@@ -281,16 +297,15 @@ def create_and_publish():
     logger.info("🚀 Генерация нового поста")
     published = load_published()
 
-    # Если слишком много тем – частично очищаем историю
     if len(published) > 1900:
         logger.info("📂 Использовано более 1900 тем, частичная очистка")
         save_published(published[-1000:])
         published = load_published()
 
-    # Пытаемся найти тему с картинкой (до 10 попыток)
     max_attempts = 10
     topic = None
     image_url = None
+
     for attempt in range(max_attempts):
         test_topic = get_unique_topic(published)
         logger.info(f"🔍 Попытка {attempt+1}: проверяем тему '{test_topic}'")
@@ -301,17 +316,14 @@ def create_and_publish():
             logger.info(f"✅ Найдена тема с картинкой: {topic}")
             break
         else:
-            # Если не нашлось – добавляем тему в "использованные", чтобы не повторять
             published.append(test_topic)
             save_published(published)
             logger.info(f"⏭️ Для '{test_topic}' фото нет, пробуем другую")
     else:
-        # Если ни одна из 10 не дала фото (крайне маловероятно) – берём последнюю
         topic = get_unique_topic(published)
-        logger.warning(f"⚠️ Не найдено фото ни для одной темы, берём '{topic}' без фото")
+        logger.warning(f"⚠️ Не найдено фото, берём '{topic}' без фото")
         image_url = None
 
-    # Генерируем историю
     logger.info(f"📌 Генерируем историю для: {topic}")
     story = generate_story(topic)
     if not story:
