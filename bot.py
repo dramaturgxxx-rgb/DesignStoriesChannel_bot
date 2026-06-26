@@ -53,6 +53,7 @@ TOPICS = [
 ]
 
 def load_published():
+    global PUBLISHED_FILE
     try:
         if os.path.exists(PUBLISHED_FILE):
             with open(PUBLISHED_FILE, "r") as f:
@@ -62,14 +63,12 @@ def load_published():
                 else:
                     return []
         else:
-            # Если файла нет, создаём пустой
             with open(PUBLISHED_FILE, "w") as f:
                 json.dump([], f)
             return []
     except Exception as e:
         logger.error(f"Ошибка загрузки published: {e}")
         # В случае ошибки используем временный файл
-        global PUBLISHED_FILE
         PUBLISHED_FILE = "/tmp/published_design.json"
         if os.path.exists(PUBLISHED_FILE):
             with open(PUBLISHED_FILE, "r") as f:
@@ -88,7 +87,6 @@ def save_published(articles):
         logger.error(f"Ошибка сохранения published: {e}")
 
 def escape_md(text):
-    """Экранирует только критичные символы для Markdown"""
     chars = r'_*[]()~`>#+-=|{}'
     return ''.join('\\' + c if c in chars else c for c in text)
 
@@ -96,13 +94,11 @@ def extract_english_words(text):
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def search_wikimedia(query):
-    """Ищет изображения строго по категориям и ключевым словам"""
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     eng_words = extract_english_words(query)
     if not eng_words:
         eng_words = [query]
     
-    # Определяем категорию по типу темы
     category = "Logos"
     if "плакат" in query or "poster" in query.lower():
         category = "Posters"
@@ -111,11 +107,9 @@ def search_wikimedia(query):
     elif "шрифт" in query or "font" in query.lower():
         category = "Typography"
     
-    # Формируем запросы с категорией
     queries = []
     base = ' '.join(eng_words)
     queries.append(f'"{base}" incategory:"{category}"')
-    # Если есть английские слова, ищем без кавычек для более широкого поиска
     if len(eng_words) > 1:
         queries.append(f'{base} incategory:"{category}"')
     queries.append(base)
@@ -144,14 +138,11 @@ def search_wikimedia(query):
             for result in data["query"]["search"]:
                 title = result["title"]
                 title_lower = title.lower()
-                # Проверяем, что в названии есть ключевые слова
                 if not any(word.lower() in title_lower for word in eng_words):
                     continue
                 
-                # Дополнительная проверка для логотипов: в названии должно быть logo/emblem/symbol
                 if category == "Logos" and not any(w in title_lower for w in ['logo', 'emblem', 'symbol', 'mark']):
                     continue
-                # Для плакатов: должно быть poster или placard
                 if category == "Posters" and not any(w in title_lower for w in ['poster', 'placard']):
                     continue
                 
@@ -188,7 +179,6 @@ def search_wikimedia(query):
     return None
 
 def generate_story(topic):
-    # Жёсткий промпт без политики, войны, нацизма
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
 
 Важные требования:
@@ -216,11 +206,9 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            # Удаляем типичные вводные фразы
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
-            # Жёстко удаляем все виды слешей
-            story = re.sub(r'\\+', '', story)  # удаляем любые последовательности \
-            story = re.sub(r'\(', '(', story)  # заменяем экранированные скобки на обычные
+            story = re.sub(r'\\+', '', story)
+            story = re.sub(r'\(', '(', story)
             story = re.sub(r'\)', ')', story)
             return story
         else:
@@ -255,7 +243,6 @@ def truncate_to_sentence(text, max_len):
             return ensure_complete(truncated + '...')
 
 def publish_to_channel(text, image_url):
-    # Чистим текст от слешей ещё раз перед отправкой
     text = re.sub(r'\\+', '', text)
     
     if image_url:
@@ -295,7 +282,6 @@ def publish_to_channel(text, image_url):
             logger.error(f"Image error: {e}")
             image_url = None
 
-    # Отправка только текста
     safe_text = escape_md(truncate_to_sentence(text, 4096))
     payload = {
         'chat_id': CHANNEL_ID,
