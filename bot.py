@@ -15,7 +15,6 @@ BOT_TOKEN = "8775611192:AAFsC5xlkQX9ijC8vQd6OEjgdWxQpEAOjMQ"
 CHANNEL_ID = "@DesignStoriesChannel"
 POLZA_API_KEY = "pza_sJJWa4sUajBEZQQL3bMvj3K22cfFr7Qd"
 MODEL = "deepseek/deepseek-v4-flash"
-
 PIXABAY_API_KEY = "4565619-33976f9ea2f6dc09d5d97cd59"
 
 TEST_MODE = True
@@ -168,11 +167,10 @@ def get_next_topic(published):
     return TOPICS[0]
 
 def clean_text(text):
-    """Удаляет ВСЕ обратные слеши простой заменой"""
+    """Удаляет только обратные слеши, не трогает пробелы и переносы"""
     if not text:
         return text
-    text = text.replace('\\', '')  # Удаляем все слеши
-    text = ' '.join(text.split())  # Убираем лишние пробелы
+    text = text.replace('\\', '')  # удаляем все обратные слеши
     return text
 
 def extract_english_words(text):
@@ -289,11 +287,11 @@ def search_image(query):
     logger.info(f"🔍 Поиск фото для: {query}")
     url = search_pixabay(query)
     if url:
-        logger.info(f"✅ Pixabay найден")
+        logger.info(f"✅ Pixabay")
         return url
     url = search_wikimedia(query)
     if url:
-        logger.info(f"✅ Wikimedia найден")
+        logger.info(f"✅ Wikimedia")
         return url
     logger.warning("❌ Фото не найдено")
     return None
@@ -329,20 +327,30 @@ def generate_story(topic):
         logger.error(f"Generate story error: {e}")
         return None
 
+def ensure_complete(text):
+    if not text:
+        return text
+    if text[-1] in '.!?':
+        return text
+    if text[-1] in ':,;—' or text.endswith(('что', 'как', 'это', '—')):
+        return text + ' Вот такая история!'
+    else:
+        return text + '.'
+
 def truncate_to_sentence(text, max_len):
     text = clean_text(text)
     if len(text) <= max_len:
-        return text
+        return ensure_complete(text)
     truncated = text[:max_len]
     last_punct = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
     if last_punct > max_len * 0.6:
-        return truncated[:last_punct+1]
+        return ensure_complete(truncated[:last_punct+1])
     else:
         last_space = truncated.rfind(' ')
         if last_space > max_len * 0.6:
-            return truncated[:last_space] + '...'
+            return ensure_complete(truncated[:last_space] + '...')
         else:
-            return truncated + '...'
+            return ensure_complete(truncated + '...')
 
 def escape_md(text):
     chars = r'_*#+-=|{}>'
@@ -351,7 +359,6 @@ def escape_md(text):
 def publish_to_channel(text, image_url):
     text = clean_text(text)
 
-    # Публикуем с картинкой, если есть
     if image_url:
         try:
             logger.info(f"📥 Скачиваем картинку")
@@ -360,7 +367,7 @@ def publish_to_channel(text, image_url):
             if img_response.status_code == 200:
                 img_data = img_response.content
                 if len(img_data) > 20 * 1024 * 1024:
-                    logger.warning("Картинка >20 МБ, пропускаем")
+                    logger.warning("Картинка >20 МБ")
                     image_url = None
                 else:
                     caption = clean_text(text[:1024])
@@ -381,7 +388,6 @@ def publish_to_channel(text, image_url):
             logger.error(f"Image error: {e}")
             image_url = None
 
-    # Публикуем только текст
     safe_text = clean_text(text[:4096])
     safe_text = escape_md(safe_text)
     payload = {'chat_id': CHANNEL_ID, 'text': safe_text, 'parse_mode': 'Markdown'}
@@ -408,7 +414,7 @@ def create_and_publish():
         image_url = search_image(alt_topic)
         if image_url:
             topic = alt_topic
-            logger.info(f"✅ Найдена картинка для '{topic}'")
+            logger.info(f"✅ Найдена картинка")
 
     if not image_url:
         logger.warning("⚠️ Без картинки")
@@ -430,7 +436,7 @@ def create_and_publish():
         logger.info(f"✅ Опубликовано: {topic}")
         return True
     else:
-        logger.error("❌ Ошибка")
+        logger.error("❌ Ошибка публикации")
         return False
 
 def run_schedule():
