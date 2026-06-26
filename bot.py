@@ -6,7 +6,6 @@ import os
 import random
 import re
 from datetime import datetime
-from urllib.parse import quote
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -62,30 +61,27 @@ def save_published(articles):
         json.dump(articles[-100:], f)
 
 def escape_md(text):
-    chars = r'_*[]()~`>#+-=|{}.!'
+    """Экранирует только те символы, которые реально могут поломать Markdown"""
+    chars = r'_*[]()~`>#+-=|{}'  # точка и восклицание удалены
     return ''.join('\\' + c if c in chars else c for c in text)
 
 def extract_english_words(text):
-    """Извлекает слова, состоящие только из латиницы и цифр"""
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def search_wikimedia(query):
-    """Улучшенный поиск с несколькими запросами (русский, английский, комбинации)"""
-    # Формируем список запросов
-    queries = [query]  # оригинальный на русском
-    # Добавляем английские слова из темы
-    eng_words = extract_english_words(query)
-    if eng_words:
-        queries.append(' '.join(eng_words))  # только английские слова
-        # Добавляем с "design" и "logo" на английском
-        queries.append(' '.join(eng_words) + ' design')
-        queries.append(' '.join(eng_words) + ' logo')
-    # Если есть английские слова, пробуем также только первое английское слово
-    if eng_words:
-        queries.append(eng_words[0])
-    # Оставляем уникальные
+    """Поиск картинок с правильным User-Agent"""
+    queries = [query]
+    eng = extract_english_words(query)
+    if eng:
+        queries.append(' '.join(eng))
+        queries.append(' '.join(eng) + ' design')
+        queries.append(' '.join(eng) + ' logo')
+        queries.append(eng[0])
     queries = list(dict.fromkeys(queries))
 
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
     for q in queries:
         try:
             logger.info(f"🔍 Ищем на Wikimedia: {q}")
@@ -98,16 +94,18 @@ def search_wikimedia(query):
                 "srnamespace": 6,
                 "srlimit": 1
             }
-            response = requests.get(search_url, params=params, timeout=10)
+            response = requests.get(search_url, params=params, headers=headers, timeout=10)
             if response.status_code != 200:
-                logger.warning(f"⚠️ Wikimedia вернул статус {response.status_code}, текст: {response.text[:200]}")
+                logger.warning(f"⚠️ Статус {response.status_code}, тело: {response.text[:200]}")
                 continue
-            data = response.json()
+            try:
+                data = response.json()
+            except json.JSONDecodeError:
+                logger.error(f"❌ Не JSON: {response.text[:200]}")
+                continue
             if not data.get("query", {}).get("search"):
                 continue
             title = data["query"]["search"][0]["title"]
-            # Получаем URL изображения
-            info_url = "https://commons.wikimedia.org/w/api.php"
             info_params = {
                 "action": "query",
                 "format": "json",
@@ -115,30 +113,22 @@ def search_wikimedia(query):
                 "prop": "imageinfo",
                 "iiprop": "url"
             }
-            info_resp = requests.get(info_url, params=info_params, timeout=10)
+            info_resp = requests.get(search_url, params=info_params, headers=headers, timeout=10)
             if info_resp.status_code != 200:
                 continue
             info_data = info_resp.json()
-            pages = info_data.get("query", {}).get("pages", {})
-            for page in pages.values():
+            for page in info_data.get("query", {}).get("pages", {}).values():
                 if page.get("imageinfo"):
                     url = page["imageinfo"][0]["url"]
                     if re.search(r'\.(jpg|jpeg|png|gif|webp)(\?.*)?$', url, re.I):
-                        logger.info(f"✅ Найдено изображение: {url}")
+                        logger.info(f"✅ Найдено: {url}")
                         return url
-                    else:
-                        logger.warning(f"⛔ Неподдерживаемый формат: {url}")
-        except requests.exceptions.JSONDecodeError as e:
-            logger.error(f"Ошибка парсинга JSON для запроса '{q}': {e}")
-            # Пробуем прочитать текст ответа для диагностики
-            logger.error(f"Ответ: {response.text[:300] if 'response' in locals() else 'нет ответа'}")
         except Exception as e:
-            logger.error(f"Ошибка поиска: {e}")
-    logger.warning("❌ Изображение не найдено ни по одному запросу")
+            logger.error(f"Ошибка при поиске '{q}': {e}")
+    logger.warning("❌ Изображение не найдено")
     return None
 
 def generate_story(topic):
-    """Генерирует историю с чётким требованием завершённости"""
     prompt = f"""Ты — историк дизайна. Напиши короткую историю на тему: {topic}.
 
 Важные требования:
@@ -148,14 +138,9 @@ def generate_story(topic):
 - Заголовок — интригующий (выдели его).
 - Пиши живым, разговорным языком.
 
-Пример структуры:
-[Заголовок]
-[История с фактами и деталями]
-[Вывод или вопрос]
-
 Тема: {topic}
 
-Теперь напиши законченную историю (без лишних вступлений, сразу текст):"""
+История:"""
     try:
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
@@ -170,7 +155,6 @@ def generate_story(topic):
         )
         if response.status_code == 200:
             story = response.json()["choices"][0]["message"]["content"].strip()
-            # Удаляем возможные вводные фразы
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
             return story
         else:
@@ -181,29 +165,23 @@ def generate_story(topic):
         return None
 
 def ensure_complete(text):
-    """Если текст заканчивается не на точку/вопрос/восклицание, добавляет завершающую фразу"""
     if not text:
         return text
     if text[-1] in '.!?':
         return text
-    # Если заканчивается на двоеточие, запятую, союз и т.п. — добавляем завершение
-    if text[-1] in ':,;—' or text.endswith('что') or text.endswith('как'):
+    if text[-1] in ':,;—' or text.endswith(('что', 'как', 'это')):
         return text + ' Вот такая история!'
     else:
-        # Добавляем многоточие, но лучше просто точку
         return text + '.'
 
 def truncate_to_sentence(text, max_len):
-    """Обрезает до max_len, стараясь завершить на точке/вопросе/восклицании"""
     if len(text) <= max_len:
         return ensure_complete(text)
     truncated = text[:max_len]
-    # Ищем последний разделитель предложений
     last_punct = max(truncated.rfind('.'), truncated.rfind('!'), truncated.rfind('?'))
     if last_punct > max_len * 0.6:
         return ensure_complete(truncated[:last_punct+1])
     else:
-        # Если нет точки, обрезаем по пробелу и добавляем завершение
         last_space = truncated.rfind(' ')
         if last_space > max_len * 0.6:
             return ensure_complete(truncated[:last_space] + '...')
@@ -226,10 +204,10 @@ def publish_to_channel(text, image_url):
                 logger.info("✅ Пост с картинкой опубликован")
                 return True
             else:
-                logger.error(f"Telegram error (photo): {resp.status_code} - {resp.text[:200]}")
+                logger.error(f"Telegram photo error: {resp.status_code} - {resp.text[:200]}")
                 image_url = None
         except Exception as e:
-            logger.error(f"Photo send error: {e}")
+            logger.error(f"Photo error: {e}")
             image_url = None
 
     safe_text = escape_md(truncate_to_sentence(text, 4096))
@@ -254,12 +232,11 @@ def create_and_publish():
     if not available:
         save_published([])
         available = TOPICS
-        logger.info("📂 История сброшена (все темы использованы)")
+        logger.info("📂 История сброшена")
     topic = random.choice(available)
     logger.info(f"📌 Тема: {topic}")
 
     image_url = search_wikimedia(topic)
-    # Если не нашли, пробуем поискать только английские слова (если есть)
     if not image_url:
         eng = extract_english_words(topic)
         if eng:
