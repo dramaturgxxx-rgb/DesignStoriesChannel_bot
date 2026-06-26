@@ -20,13 +20,11 @@ MODEL = "deepseek/deepseek-v4-flash"
 TEST_MODE = True
 TEST_INTERVAL = 60
 
-# Используем абсолютный путь, чтобы файл точно создавался
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLISHED_FILE = os.path.join(BASE_DIR, "published_design.json")
 
 # =============================================
 
-# Уникальные темы (без дублей)
 TOPICS = [
     "логотип Apple",
     "логотип Nike",
@@ -58,17 +56,13 @@ def load_published():
         if os.path.exists(PUBLISHED_FILE):
             with open(PUBLISHED_FILE, "r") as f:
                 data = json.load(f)
-                if isinstance(data, list):
-                    return data
-                else:
-                    return []
+                return data if isinstance(data, list) else []
         else:
             with open(PUBLISHED_FILE, "w") as f:
                 json.dump([], f)
             return []
     except Exception as e:
         logger.error(f"Ошибка загрузки published: {e}")
-        # В случае ошибки используем временный файл
         PUBLISHED_FILE = "/tmp/published_design.json"
         if os.path.exists(PUBLISHED_FILE):
             with open(PUBLISHED_FILE, "r") as f:
@@ -97,24 +91,32 @@ def search_wikimedia(query):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
     eng_words = extract_english_words(query)
     if not eng_words:
-        eng_words = [query]
-    
+        return None  # если нет английских слов, не можем искать
+
+    # Определяем категорию и дополнительные ключевые слова для фильтрации
     category = "Logos"
+    required_keywords = []
     if "плакат" in query or "poster" in query.lower():
         category = "Posters"
+        required_keywords = ['poster', 'placard']
     elif "стул" in query or "кресло" in query or "chair" in query.lower():
         category = "Furniture"
+        required_keywords = ['chair', 'furniture', 'seat']
     elif "шрифт" in query or "font" in query.lower():
         category = "Typography"
-    
-    queries = []
+        required_keywords = ['font', 'typeface', 'specimen', 'typography']
+    else:
+        # для логотипов
+        required_keywords = ['logo', 'emblem', 'symbol', 'mark']
+
     base = ' '.join(eng_words)
-    queries.append(f'"{base}" incategory:"{category}"')
-    if len(eng_words) > 1:
-        queries.append(f'{base} incategory:"{category}"')
-    queries.append(base)
+    queries = [
+        f'"{base}" incategory:"{category}"',
+        f'{base} incategory:"{category}"',
+        base
+    ]
     queries = list(dict.fromkeys(queries))
-    
+
     for q in queries:
         try:
             logger.info(f"🔍 Ищем на Wikimedia: {q}")
@@ -125,7 +127,7 @@ def search_wikimedia(query):
                 "list": "search",
                 "srsearch": q,
                 "srnamespace": 6,
-                "srlimit": 10,
+                "srlimit": 20,
                 "srwhat": "text"
             }
             response = requests.get(search_url, params=params, headers=headers, timeout=15)
@@ -134,18 +136,17 @@ def search_wikimedia(query):
             data = response.json()
             if not data.get("query", {}).get("search"):
                 continue
-            
+
             for result in data["query"]["search"]:
                 title = result["title"]
                 title_lower = title.lower()
-                if not any(word.lower() in title_lower for word in eng_words):
+                # Проверяем наличие всех английских слов из запроса в названии
+                if not all(word.lower() in title_lower for word in eng_words):
                     continue
-                
-                if category == "Logos" and not any(w in title_lower for w in ['logo', 'emblem', 'symbol', 'mark']):
+                # Проверяем наличие обязательных ключевых слов категории
+                if not any(kw in title_lower for kw in required_keywords):
                     continue
-                if category == "Posters" and not any(w in title_lower for w in ['poster', 'placard']):
-                    continue
-                
+
                 info_params = {
                     "action": "query",
                     "format": "json",
@@ -166,32 +167,34 @@ def search_wikimedia(query):
                     desc = page["imageinfo"][0].get("extmetadata", {}).get("ImageDescription", {}).get("value", "")
                     if desc:
                         desc_lower = desc.lower()
-                        if any(word.lower() in desc_lower for word in eng_words):
+                        # Проверяем, что в описании есть хотя бы одно ключевое слово из запроса
+                        if any(word.lower() in desc_lower for word in eng_words) and any(kw in desc_lower for kw in required_keywords):
                             logger.info(f"✅ Найдено релевантное изображение: {url}")
                             return url
                     else:
+                        # Если описания нет, но заголовок подходит - берём
                         logger.info(f"✅ Найдено изображение (без описания): {url}")
                         return url
         except Exception as e:
             logger.error(f"Ошибка при поиске '{q}': {e}")
-    
-    logger.warning("❌ Подходящее изображение не найдено")
+
+    logger.warning("❌ Релевантное изображение не найдено")
     return None
 
 def generate_story(topic):
     prompt = f"""Ты — историк дизайна. Напиши короткую, интересную историю на тему: {topic}.
 
 Важные требования:
-- Объём: ровно 700–800 символов (не больше!).
+- Объём: ровно 700–800 символов.
 - История должна быть законченной: вступление, основная часть, вывод или вопрос.
 - Заголовок — интригующий, выдели его **жирным**.
 - Пиши живым, разговорным языком.
 - Никаких упоминаний политики, войн, нацизма, фюреров, свастик.
-- Не используй обратные слеши (\\) или экранирование.
+- Не используй обратные слеши или экранирование.
 
 Тема: {topic}
 
-Напиши историю (без лишних вступлений):"""
+Напиши историю:"""
     try:
         response = requests.post(
             "https://polza.ai/api/v1/chat/completions",
@@ -208,8 +211,6 @@ def generate_story(topic):
             story = response.json()["choices"][0]["message"]["content"].strip()
             story = re.sub(r'^(Вот|История|Текст|Расскажу|Давайте|Конечно|Напишу)\s*[:,.!]?\s*', '', story, flags=re.IGNORECASE)
             story = re.sub(r'\\+', '', story)
-            story = re.sub(r'\(', '(', story)
-            story = re.sub(r'\)', ')', story)
             return story
         else:
             logger.error(f"Polza error: {response.status_code}")
@@ -317,14 +318,14 @@ def create_and_publish():
         if img:
             chosen_topic = topic
             image_url = img
-            logger.info(f"✅ Для темы '{topic}' найдена картинка")
+            logger.info(f"✅ Для темы '{topic}' найдена релевантная картинка")
             break
         else:
-            logger.info(f"⏭️ Для темы '{topic}' картинка не найдена, пробуем следующую")
+            logger.info(f"⏭️ Для темы '{topic}' релевантная картинка не найдена, пробуем следующую")
     
     if not chosen_topic:
         chosen_topic = available[0]
-        logger.warning(f"⚠️ Ни для одной темы не найдена картинка, берём '{chosen_topic}' без картинки")
+        logger.warning(f"⚠️ Ни для одной темы не найдена релевантная картинка, берём '{chosen_topic}' без картинки")
         image_url = None
     
     logger.info(f"📌 Генерируем историю для: {chosen_topic}")
