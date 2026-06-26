@@ -65,20 +65,54 @@ def html_escape(text):
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
 def extract_english_words(text):
+    """Извлекает слова, состоящие только из латиницы и цифр"""
     return re.findall(r'[A-Za-z0-9]+', text)
 
 def search_wikimedia(query):
-    """Ищет изображения только .jpg или .jpeg (надёжно для Telegram)"""
+    """
+    Ищет изображения на Wikimedia Commons с высокой релевантностью.
+    Использует категории, точное совпадение фразы и проверку описания.
+    Возвращает URL JPG-изображения или None.
+    """
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-    queries = [query]
-    eng = extract_english_words(query)
-    if eng:
-        queries.append(' '.join(eng))
-        queries.append(' '.join(eng) + ' design')
-        queries.append(' '.join(eng) + ' logo')
-        queries.append(eng[0])
+    
+    # Разбираем запрос: если есть английские слова, используем их для точного поиска
+    eng_words = extract_english_words(query)
+    base_query = query
+    if eng_words:
+        # Формируем запрос с категориями для логотипов и плакатов
+        # Определяем, что ищем: логотип или плакат
+        is_logo = any(word in query.lower() for word in ['логотип', 'logo'])
+        is_poster = any(word in query.lower() for word in ['плакат', 'poster'])
+        is_font = any(word in query.lower() for word in ['шрифт', 'font'])
+        
+        categories = []
+        if is_logo:
+            categories.append('Logos')
+        if is_poster:
+            categories.append('Posters')
+        if is_font:
+            categories.append('Typefaces')
+        # Если ничего не определили, добавляем общие категории
+        if not categories:
+            categories = ['Design', 'Culture', 'Art']
+        
+        # Формируем список запросов с категориями
+        base = ' '.join(eng_words)
+        queries = []
+        for cat in categories:
+            queries.append(f'"{base}" incategory:"{cat}"')
+        # Добавляем простой запрос на случай, если категории не дали результата
+        queries.append(f'"{base}"')
+        # И просто без кавычек, если ничего не найдено
+        queries.append(base)
+    else:
+        # Если нет английских слов, ищем как есть
+        queries = [f'"{query}"', query]
+    
+    # Убираем дубликаты
     queries = list(dict.fromkeys(queries))
-
+    
     for q in queries:
         try:
             logger.info(f"🔍 Ищем на Wikimedia: {q}")
@@ -89,7 +123,8 @@ def search_wikimedia(query):
                 "list": "search",
                 "srsearch": q,
                 "srnamespace": 6,
-                "srlimit": 1
+                "srlimit": 10,  # берём до 10 результатов для фильтрации
+                "srwhat": "text"
             }
             response = requests.get(search_url, params=params, headers=headers, timeout=10)
             if response.status_code != 200:
@@ -97,30 +132,58 @@ def search_wikimedia(query):
             data = response.json()
             if not data.get("query", {}).get("search"):
                 continue
-            title = data["query"]["search"][0]["title"]
-            info_params = {
-                "action": "query",
-                "format": "json",
-                "titles": title,
-                "prop": "imageinfo",
-                "iiprop": "url"
-            }
-            info_resp = requests.get(search_url, params=info_params, headers=headers, timeout=10)
-            if info_resp.status_code != 200:
-                continue
-            info_data = info_resp.json()
-            for page in info_data.get("query", {}).get("pages", {}).values():
-                if page.get("imageinfo"):
+            
+            # Перебираем результаты
+            for result in data["query"]["search"]:
+                title = result["title"]
+                # Проверяем, содержит ли название хотя бы одно ключевое слово (на английском)
+                if eng_words and not any(word.lower() in title.lower() for word in eng_words):
+                    continue
+                
+                # Получаем информацию о файле
+                info_params = {
+                    "action": "query",
+                    "format": "json",
+                    "titles": title,
+                    "prop": "imageinfo",
+                    "iiprop": "url|extmetadata"
+                }
+                info_resp = requests.get(search_url, params=info_params, headers=headers, timeout=10)
+                if info_resp.status_code != 200:
+                    continue
+                info_data = info_resp.json()
+                for page in info_data.get("query", {}).get("pages", {}).values():
+                    if not page.get("imageinfo"):
+                        continue
                     url = page["imageinfo"][0]["url"]
-                    # Только JPG/JPEG
-                    if re.search(r'\.(jpg|jpeg)(\?.*)?$', url, re.I):
-                        logger.info(f"✅ Найдено JPG: {url}")
+                    # Проверяем расширение – только JPG/JPEG
+                    if not re.search(r'\.(jpg|jpeg)(\?.*)?$', url, re.I):
+                        continue
+                    # Проверяем описание файла
+                    desc = page["imageinfo"][0].get("extmetadata", {}).get("ImageDescription", {}).get("value", "")
+                    if desc:
+                        # Если описание содержит ключевые слова (на русском или английском), считаем релевантным
+                        desc_lower = desc.lower()
+                        # Проверяем, есть ли в описании хотя бы одно слово из запроса (русское или английское)
+                        query_words = re.findall(r'[а-яёa-z0-9]+', query.lower(), re.I)
+                        if any(word in desc_lower for word in query_words):
+                            logger.info(f"✅ Найдено релевантное изображение: {url}")
+                            return url
+                        # Если описание содержит английские слова, но нет русских, тоже релевантно
+                        if any(word.lower() in desc_lower for word in eng_words):
+                            logger.info(f"✅ Найдено изображение (по описанию): {url}")
+                            return url
+                    # Если описания нет, но заголовок содержит ключевые слова – тоже берём
+                    if eng_words and any(word.lower() in title.lower() for word in eng_words):
+                        logger.info(f"✅ Найдено изображение (по заголовку): {url}")
                         return url
-                    else:
-                        logger.warning(f"⛔ Пропускаем (не JPG): {url}")
+                    # Если всё совпало, но нет фильтрации – берём как fallback
+                    logger.info(f"✅ Найдено изображение (без проверки): {url}")
+                    return url
         except Exception as e:
             logger.error(f"Ошибка при поиске '{q}': {e}")
-    logger.warning("❌ Подходящее JPG-изображение не найдено")
+    
+    logger.warning("❌ Подходящее изображение не найдено")
     return None
 
 def generate_story(topic):
@@ -249,11 +312,8 @@ def create_and_publish():
     topic = random.choice(available)
     logger.info(f"📌 Тема: {topic}")
 
+    # Поиск картинки с улучшенным методом
     image_url = search_wikimedia(topic)
-    if not image_url:
-        eng = extract_english_words(topic)
-        if eng:
-            image_url = search_wikimedia(' '.join(eng))
 
     story = generate_story(topic)
     if not story:
